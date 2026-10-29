@@ -253,22 +253,37 @@ struct BarreProgression: View {
     }
 }
 
-/// Interrupteur des Réglages : petit, au dégradé du thème quand il est allumé, sombre quand il est éteint.
+/// Interrupteur des Réglages : rail au dégradé du thème quand il est allumé, sombre quand il est éteint ;
+/// pastille en verre liquide (macOS 26 et plus), blanche sur les versions antérieures.
 struct Interrupteur: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         let t = configuration.isOn ? Boutons.mettreAJour : Boutons.neutre
         return Capsule()
             .fill(LinearGradient(colors: [Color(hex: t.gauche), Color(hex: t.droite)], startPoint: .leading, endPoint: .trailing))
             .overlay(Capsule().strokeBorder(.white.opacity(configuration.isOn ? 0.25 : 0.12), lineWidth: 0.5))
-            .frame(width: 28, height: 16)
+            .frame(width: 36, height: 20)
             .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                Circle()
-                    .fill(.white.opacity(configuration.isOn ? 0.95 : 0.55))
-                    .frame(width: 12, height: 12)
-                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
-                    .padding(2)
+                Pastille(allumee: configuration.isOn).padding(2)
             }
             .contentShape(Capsule())
-            .onTapGesture { withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { configuration.isOn.toggle() } }
+            .onTapGesture { withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { configuration.isOn.toggle() } }
+    }
+}
+
+private struct Pastille: View {
+    let allumee: Bool
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            Circle()
+                .fill(.white.opacity(allumee ? 0.30 : 0.12))
+                .frame(width: 16, height: 16)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .shadow(color: .black.opacity(0.30), radius: 2, y: 1)
+        } else {
+            Circle()
+                .fill(.white.opacity(allumee ? 0.95 : 0.55))
+                .frame(width: 16, height: 16)
+                .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+        }
     }
 }
