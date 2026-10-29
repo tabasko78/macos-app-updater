@@ -80,7 +80,12 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func majIcone() {
         let n = moteur.aMettreAJour.count
-        icone.button?.image = NSImage(systemSymbolName: n > 0 ? "arrow.down.app.fill" : "arrow.down.app", accessibilityDescription: L.t("Mises à jour", "App Updater"))
+        // Des mises à jour : la flèche et leur nombre. Tout est à jour (vérification faite) : une coche.
+        // Image « modèle » : blanche sur une barre des menus sombre, noire sur une claire.
+        let symbole = n > 0 ? "arrow.down.app.fill" : (moteur.derniereVerif != nil && !moteur.enCours ? "checkmark.circle" : "arrow.down.app")
+        let image = NSImage(systemSymbolName: symbole, accessibilityDescription: L.t("Mises à jour", "App Updater"))
+        image?.isTemplate = true
+        icone.button?.image = image
         icone.button?.title = n > 0 ? " \(n)" : ""
         // Pastille rouge sur l'icône du Dock, quand elle y est.
         NSApp.dockTile.badgeLabel = moteur.affichage.dock && n > 0 ? "\(n)" : nil
