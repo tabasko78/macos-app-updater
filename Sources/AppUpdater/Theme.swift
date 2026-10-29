@@ -53,6 +53,12 @@ enum T {
     static var framboise: Color { Color(hex: p.framboise) }
     static var trait: Color { accent.opacity(0.16) }
 
+    // Numéros de version et statuts. En Bleu nuit : des gris clairs, la nouvelle version plus claire que l'actuelle
+    // (le turquoise ne plaisait pas, 29/10/2026). Ailleurs : comme avant.
+    static var versionActuelle: Color { nom == .bleuNuit ? Color(hex: 0xa9adbb) : doux }
+    static var versionNouvelle: Color { nom == .bleuNuit ? Color(hex: 0xf1f2f6) : cyan }
+    static var statut: Color { nom == .bleuNuit ? Color(hex: 0xd6d8e0) : cyan }
+
     /// Texte posé sur un aplat de couleur : noir au-dessus de 0,3 de luminance, blanc en dessous.
     static func sur(_ hex: UInt32) -> Color {
         func c(_ v: UInt32) -> Double {

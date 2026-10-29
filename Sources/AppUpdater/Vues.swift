@@ -82,10 +82,10 @@ struct LigneApp: View {
 
     private var versions: some View {
         HStack(spacing: 4) {
-            Text(app.versionAffichee).foregroundStyle(T.doux)
+            Text(app.versionAffichee).foregroundStyle(T.versionActuelle)
             if app.aJour == false, let d = app.disponible {
                 Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(T.tresDoux)
-                Text(d).foregroundStyle(T.cyan)
+                Text(d).foregroundStyle(T.versionNouvelle)
             }
         }
         .font(T.police(compacte ? 11 : 12, .medium))
@@ -282,7 +282,7 @@ struct FenetreListe: View {
             }
             Spacer(minLength: 8)
             if let l = m.lot {
-                Text(L.t("Lot : \(l.fait) / \(l.total)", "Batch: \(l.fait) / \(l.total)")).font(T.police(11, .semibold)).foregroundStyle(T.cyan).fixedSize()
+                Text(L.t("Lot : \(l.fait) / \(l.total)", "Batch: \(l.fait) / \(l.total)")).font(T.police(11, .semibold)).foregroundStyle(T.statut).fixedSize()
             }
             // Les onglets, complètement à droite.
             HStack(spacing: 6) {
@@ -469,9 +469,9 @@ struct JournalVue: View {
                             Text(e.nom).font(T.police(12, .semibold)).foregroundStyle(T.texte).lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             HStack(spacing: 4) {
-                                Text(e.avant ?? "–").foregroundStyle(T.doux)
+                                Text(e.avant ?? "–").foregroundStyle(T.versionActuelle)
                                 Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(T.tresDoux)
-                                Text(e.apres ?? "–").foregroundStyle(T.cyan)
+                                Text(e.apres ?? "–").foregroundStyle(T.versionNouvelle)
                             }
                             .lineLimit(1).frame(width: 230, alignment: .leading)
                             Text(Self.libelle(e.quoi)).foregroundStyle(couleur(e.quoi)).frame(width: 110, alignment: .leading)
@@ -504,7 +504,7 @@ struct JournalVue: View {
 
     private func couleur(_ quoi: String) -> Color {
         switch quoi {
-        case "Mise à jour", "Réinstallée": T.cyan
+        case "Mise à jour", "Réinstallée": T.statut
         case "Installée": T.accent
         case "Désinstallée", "Disparue": T.framboise
         default: T.doux
@@ -695,7 +695,7 @@ struct PanneauMenu: View {
                 Text(L.t("Mises à jour", "App Updater")).font(T.police(15, .bold)).foregroundStyle(T.texte)
                 Spacer()
                 if let l = m.lot {
-                    Text("\(l.fait) / \(l.total)").font(T.police(11, .semibold)).foregroundStyle(T.cyan)
+                    Text("\(l.fait) / \(l.total)").font(T.police(11, .semibold)).foregroundStyle(T.statut)
                 }
                 if m.enCours {
                     ProgressView().controlSize(.small)
