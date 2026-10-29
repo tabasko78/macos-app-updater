@@ -641,6 +641,11 @@ struct ReglagesVue: View {
                     ligne("Gemini", L.t("Gemini résume en deux phrases les notes de version des mises à jour proposées, avec ta propre clé d'API (aistudio.google.com). Seules les notes de version lui sont envoyées.", "Gemini summarizes the release notes of offered updates in two sentences, with your own API key (aistudio.google.com). Only the release notes are sent.")) {
                         Toggle("", isOn: $m.gemini).toggleStyle(Interrupteur()).labelsHidden()
                     }
+                    ligne(L.t("Consommation depuis le début", "Usage since the start"),
+                          L.t("Cumulée depuis le premier résumé, jamais remise à zéro. Le montant est calculé avec le tarif public de Google au jour de chaque appel : une remise ou un quota gratuit propre à ton compte n'y figure pas.",
+                              "Accumulated since the first summary, never reset. The amount uses Google's public price on the day of each call: a discount or free quota specific to your account is not included.")) {
+                        Text(consommation).font(T.police(12)).foregroundStyle(T.doux).monospacedDigit()
+                    }
                     if m.gemini {
                         ligne(L.t("Clé d'API", "API key"), L.t("Rangée sur ce Mac, dans le dossier de l'app, lisible par ton seul compte.", "Stored on this Mac, in the app folder, readable by your account only.")) {
                             HStack(spacing: 6) {
@@ -682,6 +687,19 @@ struct ReglagesVue: View {
             .frame(maxWidth: .infinity, alignment: .top)
             }
         }
+    }
+
+    /// « 12 appels · 34 500 jetons · 3 recherches · ≈ 0,04 $ »
+    private var consommation: String {
+        let c = Consommation.lire().values
+        let appels = c.reduce(0) { $0 + $1.appels }
+        let jetons = c.reduce(0) { $0 + $1.entree + $1.sortie }
+        let recherches = c.reduce(0) { $0 + $1.recherches }
+        let dollars = c.reduce(0.0) { $0 + ($1.dollars ?? 0) }
+        let n = { (x: Int) in x.formatted(.number.locale(L.locale)) }
+        let montant = dollars.formatted(.number.precision(.fractionLength(dollars < 1 ? 3 : 2)).locale(L.locale))
+        return L.t("\(n(appels)) appels · \(n(jetons)) jetons · \(n(recherches)) recherches · ≈ \(montant) $",
+                   "\(n(appels)) calls · \(n(jetons)) tokens · \(n(recherches)) searches · ≈ $\(montant)")
     }
 
     /// Vérifie la clé auprès de Gemini avant de l'enregistrer, et affiche ✓ ou ✗.

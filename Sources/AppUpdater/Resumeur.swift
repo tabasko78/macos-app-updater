@@ -149,7 +149,19 @@ enum Resumeur {
 /// Ce que Gemini a consommé avec la clé de l'app, cumulé depuis le premier appel et jamais remis à zéro :
 /// par modèle, nombre d'appels, jetons envoyés et reçus (réflexion comprise), recherches web.
 enum Consommation {
-    struct Compte: Codable { var appels = 0; var entree = 0; var sortie = 0; var recherches = 0 }
+    struct Compte: Codable { var appels = 0; var entree = 0; var sortie = 0; var recherches = 0; var dollars: Double? = 0 }
+
+    /// Tarif public Gemini API, offre payante standard, en dollars par million de jetons (entrée, sortie réflexion
+    /// comprise), relevé le 29/10/2026 sur ai.google.dev/gemini-api/docs/pricing. Les Flash 3.6 et 3.8 doublent
+    /// au 1er janvier 2027. gemini-flash-latest n'y figure pas : compté comme 3.8 Flash.
+    private static func tarif(_ modele: String, _ jour: Date) -> (entree: Double, sortie: Double) {
+        if modele.contains("flash-lite") { return (0.30, 2.50) }
+        let hausse = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2027, month: 1, day: 1))!
+        return jour < hausse ? (0.75, 3.75) : (1.50, 7.50)
+    }
+    /// Recherche Google : 5 000 par mois gratuites (tous modèles 3 et plus), puis 14 $ les 1 000.
+    private static let recherchesGratuitesParMois = 5000
+    private static let prixRecherche = 0.014
     private static var fichier: URL { Dossiers.support.appendingPathComponent("gemini-consommation.json") }
     private static let verrou = NSLock()
 
@@ -162,11 +174,23 @@ enum Consommation {
         verrou.lock(); defer { verrou.unlock() }
         var tout = lire()
         var c = tout[modele] ?? Compte()
-        c.appels += 1
-        c.entree += (u["promptTokenCount"] as? Int ?? 0) + (u["toolUsePromptTokenCount"] as? Int ?? 0)
-        c.sortie += (u["candidatesTokenCount"] as? Int ?? 0) + (u["thoughtsTokenCount"] as? Int ?? 0)
+        let entree = (u["promptTokenCount"] as? Int ?? 0) + (u["toolUsePromptTokenCount"] as? Int ?? 0)
+        let sortie = (u["candidatesTokenCount"] as? Int ?? 0) + (u["thoughtsTokenCount"] as? Int ?? 0)
         let ancrage = ((j?["candidates"] as? [[String: Any]])?.first?["groundingMetadata"] as? [String: Any])
-        c.recherches += (ancrage?["webSearchQueries"] as? [Any])?.count ?? 0
+        let recherches = (ancrage?["webSearchQueries"] as? [Any])?.count ?? 0
+        // Coût calculé au moment de l'appel, au tarif du jour : il ne bouge plus ensuite.
+        let t = tarif(modele, Date())
+        var cout = Double(entree) / 1e6 * t.entree + Double(sortie) / 1e6 * t.sortie
+        let mois = Date().formatted(.iso8601.year().month())
+        let dejaCeMois = UserDefaults.standard.integer(forKey: "recherches-" + mois)
+        let payantes = max(0, dejaCeMois + recherches - recherchesGratuitesParMois) - max(0, dejaCeMois - recherchesGratuitesParMois)
+        cout += Double(payantes) * prixRecherche
+        UserDefaults.standard.set(dejaCeMois + recherches, forKey: "recherches-" + mois)
+        c.appels += 1
+        c.entree += entree
+        c.sortie += sortie
+        c.recherches += recherches
+        c.dollars = (c.dollars ?? 0) + cout
         tout[modele] = c
         try? JSONEncoder().encode(tout).write(to: fichier, options: .atomic)
     }
