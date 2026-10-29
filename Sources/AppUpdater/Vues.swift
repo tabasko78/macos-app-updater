@@ -26,17 +26,16 @@ struct LigneApp: View {
 
     private var largeurBouton: CGFloat { compacte ? 116 : 132 }
 
-    /// « 2,28 Go · il y a 3 jours » : taille sur le disque et dernière utilisation, quand elles sont connues.
-    private var details: String? {
-        var d: [String] = []
-        if let t = m.tailles[app.chemin] { d.append(Desinstalleur.lisible(t)) }
-        if !compacte, let u = app.derniereUtilisation {
-            let f = RelativeDateTimeFormatter()
-            f.locale = L.locale
-            f.unitsStyle = .full
-            d.append(L.t("utilisée ", "used ") + f.localizedString(for: u, relativeTo: Date()))
-        }
-        return d.isEmpty ? nil : d.joined(separator: " · ")
+    /// Taille sur le disque, collée au nom.
+    private var details: String? { m.tailles[app.chemin].map(Desinstalleur.lisible) }
+
+    /// Colonne « Utilisée il y a 3 jours » / « Jamais utilisée », d'après Spotlight.
+    private var usage: String {
+        guard let u = app.derniereUtilisation else { return L.t("Jamais utilisée", "Never used") }
+        let f = RelativeDateTimeFormatter()
+        f.locale = L.locale
+        f.unitsStyle = .full
+        return L.t("Utilisée ", "Used ") + f.localizedString(for: u, relativeTo: Date())
     }
 
     var body: some View {
@@ -63,6 +62,10 @@ struct LigneApp: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if !compacte {
+                    Text(usage).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
+                        .frame(width: 170, alignment: .leading)
+                }
                 versions
                 if !compacte { pastille }
                 bouton
@@ -574,7 +577,8 @@ struct JournalVue: View {
 
 final class EtatReglages: ObservableObject {
     @Published var cleGemini = Resumeur.cle ?? ""
-    @Published var cleEnregistree = false
+    @Published var verification: String?     // nil : rien à dire ; "" : clé valide ; sinon l'erreur
+    @Published var enTest = false
 }
 
 struct ReglagesVue: View {
@@ -582,7 +586,9 @@ struct ReglagesVue: View {
     @StateObject private var etat = EtatReglages()
 
     var body: some View {
-        ListeAjustee(lignes: 14, maxLignes: 40) {
+        ListeAjustee(lignes: 8, maxLignes: 40) {
+            // Deux colonnes : la page tenait sur un quart de la largeur.
+            HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 14) {
                 rubrique(L.t("Apparence", "Appearance")) {
                     ligne(L.t("Thème", "Theme"), L.t("Bleu nuit, Violine, ou Graphite : le gris presque noir des apps en mode sombre.", "Midnight blue, Violet, or Graphite: the near-black grey of dark-mode apps.")) {
@@ -608,6 +614,15 @@ struct ReglagesVue: View {
                         Toggle("", isOn: $m.notifications).toggleStyle(Interrupteur()).labelsHidden()
                     }
                 }
+                rubrique(L.t("Démarrage", "Startup")) {
+                    ligne(L.t("Ouvrir à la connexion", "Open at login"), L.t("L'app se lance seule à l'ouverture de ta session.", "The app starts by itself when you log in.")) {
+                        Toggle("", isOn: Binding(get: { m.lancementSession }, set: { m.basculerLancementSession($0) }))
+                            .toggleStyle(Interrupteur()).labelsHidden()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
+            VStack(alignment: .leading, spacing: 14) {
                 rubrique(L.t("Mises à jour", "Updates")) {
                     ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les apps proposées s'installent seules. Jamais les apps ouvertes, celles qui demandent ton mot de passe, ni les versions majeures.", "At every check, offered updates install by themselves. Never open apps, apps that need your password, or major versions.")) {
                         Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
@@ -618,12 +633,6 @@ struct ReglagesVue: View {
                             .toggleStyle(Interrupteur()).labelsHidden()
                     }
                 }
-                rubrique(L.t("Démarrage", "Startup")) {
-                    ligne(L.t("Ouvrir à la connexion", "Open at login"), L.t("L'app se lance seule à l'ouverture de ta session.", "The app starts by itself when you log in.")) {
-                        Toggle("", isOn: Binding(get: { m.lancementSession }, set: { m.basculerLancementSession($0) }))
-                            .toggleStyle(Interrupteur()).labelsHidden()
-                    }
-                }
                 rubrique(L.t("Résumés des nouveautés", "What's new summaries")) {
                     ligne("Gemini", L.t("Gemini résume en deux phrases les notes de version des mises à jour proposées, avec ta propre clé d'API (aistudio.google.com). Seules les notes de version lui sont envoyées.", "Gemini summarizes the release notes of offered updates in two sentences, with your own API key (aistudio.google.com). Only the release notes are sent.")) {
                         Toggle("", isOn: $m.gemini).toggleStyle(Interrupteur()).labelsHidden()
@@ -631,15 +640,24 @@ struct ReglagesVue: View {
                     if m.gemini {
                         ligne(L.t("Clé d'API", "API key"), L.t("Rangée sur ce Mac, dans le dossier de l'app, lisible par ton seul compte.", "Stored on this Mac, in the app folder, readable by your account only.")) {
                             HStack(spacing: 6) {
+                                if etat.enTest {
+                                    ProgressView().controlSize(.small)
+                                } else if let v = etat.verification {
+                                    Image(systemName: v.isEmpty ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                        .foregroundStyle(v.isEmpty ? T.statut : T.framboise)
+                                        .help(v.isEmpty ? L.t("Clé valide, enregistrée", "Valid key, saved") : v)
+                                }
                                 SecureField(L.t("Clé d'API", "API key"), text: $etat.cleGemini)
                                     .textFieldStyle(.plain).font(T.police(12)).foregroundStyle(T.texte)
-                                    .padding(.horizontal, 10).padding(.vertical, 5).verre(8).frame(width: 220)
-                                Button(etat.cleEnregistree ? L.t("Enregistrée", "Saved") : L.t("Enregistrer", "Save")) {
-                                    Resumeur.cle = etat.cleGemini
-                                    etat.cleEnregistree = true
-                                    Task { await m.resumer() }
-                                }
-                                .buttonStyle(BoutonDiscret())
+                                    .padding(.horizontal, 10).padding(.vertical, 5).verre(8).frame(width: 170)
+                                    // Un collage depuis le Terminal apporte un retour à la ligne : on le retire.
+                                    .onChange(of: etat.cleGemini) { _, v in
+                                        let propre = v.filter { !$0.isWhitespace && !$0.isNewline }
+                                        if propre != v { etat.cleGemini = propre }
+                                        etat.verification = nil
+                                    }
+                                    .onSubmit { enregistrerCle() }
+                                Button(L.t("Enregistrer", "Save")) { enregistrerCle() }.buttonStyle(BoutonDiscret()).disabled(etat.enTest)
                             }
                         }
                     }
@@ -656,6 +674,23 @@ struct ReglagesVue: View {
                         Button(L.t("Ouvrir le dossier", "Open folder")) { NSWorkspace.shared.open(Dossiers.support) }.buttonStyle(BoutonDiscret())
                     }
                 }
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
+            }
+        }
+    }
+
+    /// Vérifie la clé auprès de Gemini avant de l'enregistrer, et affiche ✓ ou ✗.
+    private func enregistrerCle() {
+        let cle = etat.cleGemini
+        etat.enTest = true
+        Task {
+            let erreur = await Resumeur.tester(cle)
+            etat.enTest = false
+            etat.verification = erreur ?? ""
+            if erreur == nil {
+                Resumeur.cle = cle
+                await m.resumer()
             }
         }
     }

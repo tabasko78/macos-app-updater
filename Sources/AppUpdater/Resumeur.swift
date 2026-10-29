@@ -53,13 +53,25 @@ enum Resumeur {
         let consigne = L.t(
             "Voici les notes de version de \(a.nom) \(a.disponible ?? ""). Résume en français, en deux phrases courtes au plus, ce que cette mise à jour apporte à l'utilisateur. Pas d'introduction, pas de liste, pas de mise en forme.",
             "Here are the release notes of \(a.nom) \(a.disponible ?? ""). Summarize in English, in two short sentences at most, what this update brings to the user. No introduction, no list, no formatting.")
-        var req = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")!, timeoutInterval: 30)
+        return try await appeler(consigne + "\n\n" + notes, cle: cle)
+    }
+
+    /// Gemini 2.5 Flash n'est plus ouvert aux nouvelles clés (octobre 2026) : 3.8 Flash.
+    static let modele = "gemini-3.8-flash"
+
+    /// Petit appel pour vérifier une clé avant de l'enregistrer ; renvoie le message d'erreur, ou nil si elle marche.
+    static func tester(_ cle: String) async -> String? {
+        do { _ = try await appeler("Reply with the single word: ok", cle: cle); return nil } catch { return error.localizedDescription }
+    }
+
+    private static func appeler(_ texte: String, cle: String) async throws -> String {
+        var req = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(modele):generateContent")!, timeoutInterval: 40)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(cle, forHTTPHeaderField: "x-goog-api-key")
         let corps: [String: Any] = [
-            "contents": [["parts": [["text": consigne + "\n\n" + notes]]]],
-            "generationConfig": ["temperature": 0.2, "maxOutputTokens": 200, "thinkingConfig": ["thinkingBudget": 0]],
+            "contents": [["parts": [["text": texte]]]],
+            "generationConfig": ["temperature": 0.2, "maxOutputTokens": 1024],
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: corps)
         let (data, rep) = try await URLSession.shared.data(for: req)
