@@ -133,7 +133,8 @@ final class Moteur: ObservableObject {
         return reste > 0 ? reste : nil
     }
 
-    func resume(_ a: AppInstallee) -> String? { resumes[cle(a)] }
+    /// « rien| » : Gemini n'a rien trouvé pour cette version, retenu pour ne plus le redemander, jamais affiché.
+    func resume(_ a: AppInstallee) -> String? { resumes[cle(a)].flatMap { $0.hasPrefix("rien|") ? nil : $0 } }
 
     // MARK: - Vérification
 
@@ -202,20 +203,29 @@ final class Moteur: ObservableObject {
         guard gemini, let k = Resumeur.cle else { return }
         if let g = messageGemini, message == g { message = nil }
         messageGemini = nil
-        for a in aMettreAJour + enAttente where resumes[cle(a)] == nil {
+        // Une version qui a échoué (Gemini saturé, réseau…) n'est retentée qu'une fois par jour : sinon chaque
+        // vérification, toutes les heures, repayait l'appel (68 appels pour 33 résumés sur l'iMac, 29/10/2026).
+        var echecs = reglages.dictionary(forKey: "echecsGemini") as? [String: Date] ?? [:]
+        echecs = echecs.filter { -$0.value.timeIntervalSinceNow < 86_400 }
+        defer { reglages.set(echecs, forKey: "echecsGemini") }
+        for a in aMettreAJour + enAttente where resumes[cle(a)] == nil && echecs[cle(a)] == nil {
             let notes = await Resumeur.notes(a)
             do {
                 if let notes {
                     resumes[cle(a)] = try await Resumeur.resumer(a, notes: notes, cle: k)
                 } else {
                     // Pas de notes publiées (Homebrew) : Gemini cherche sur le web. « web| » marque l'origine.
-                    guard let r = try? await Resumeur.resumerWeb(a, cle: k) else { continue }
-                    resumes[cle(a)] = "web|" + r
+                    do {
+                        resumes[cle(a)] = "web|" + (try await Resumeur.resumerWeb(a, cle: k))
+                    } catch let e as ErreurSource where e.errorDescription == "" {
+                        resumes[cle(a)] = "rien|"   // rien trouvé de fiable : retenu, plus jamais redemandé
+                    }
                 }
                 Resumeur.enregistrer(resumes)
                 if let g = messageGemini, message == g { message = nil }
                 messageGemini = nil
             } catch {
+                echecs[cle(a)] = Date()
                 messageGemini = error.localizedDescription
                 message = messageGemini
                 return
