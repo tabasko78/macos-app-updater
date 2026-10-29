@@ -404,7 +404,11 @@ struct FenetreListe: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 6).verre(14)
             .frame(minWidth: 130, maxWidth: 220)
-            if !m.selection.isEmpty {
+            if let l = m.lot {
+                // Pendant un lot : où on en est, mis à jour à chaque app.
+                Button(L.t("Mise à jour \(l.fait + 1) sur \(l.total)…", "Updating \(l.fait + 1) of \(l.total)…")) {}
+                    .buttonStyle(BoutonPlein(teinte: Boutons.mettreAJour)).fixedSize().disabled(true)
+            } else if !m.selection.isEmpty {
                 Button(L.t("Mettre à jour la sélection (\(m.selection.count))", "Update selection (\(m.selection.count))")) { Task { await m.mettreAJourSelection() } }
                     .buttonStyle(BoutonPlein(teinte: Boutons.mettreAJour)).fixedSize().disabled(m.lot != nil)
                     .help(L.t("Seulement les apps cochées, l'une après l'autre", "Only the checked apps, one after the other"))
@@ -638,6 +642,17 @@ struct ReglagesVue: View {
                 rubrique(L.t("Mises à jour", "Updates")) {
                     ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les mises à jour s'installent toutes seules (sauf les applications qui exigent d'être fermées, qui nécessitent un mot de passe, ou les mises à jour majeures qui pourraient exiger une nouvelle licence).", "At every check, updates install by themselves (except apps that must be quit, that need a password, or major updates that could require a new license).")) {
                         Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
+                    }
+                    ligne(L.t("Retenir le mot de passe de session", "Remember the login password"),
+                          L.t("Certaines mises à jour (paquets, apps installées au nom du système) demandent ton mot de passe. « Toujours » le range dans le trousseau de macOS : il n'est plus jamais redemandé.",
+                              "Some updates (packages, apps installed by the system) need your password. “Always” stores it in the macOS keychain: it is never asked again.")) {
+                        Deroulant(valeur: Binding(get: { MemoireMotDePasse.actuelle },
+                                                  set: { v in
+                                                      UserDefaults.standard.set(v.rawValue, forKey: "memoireMotDePasse")
+                                                      if v != .trousseau { MotDePasse.trousseau(nil) }   // retiré du trousseau si on ne veut plus l'y garder
+                                                      m.objectWillChange.send()
+                                                  }),
+                                  options: MemoireMotDePasse.allCases.map { ($0, $0.libelle) })
                     }
                     ligne(L.t("Fermer les apps sans demander", "Quit apps without asking"), L.t("Avant de mettre à jour une app ouverte, elle est fermée sans question (puis rouverte).", "Before updating an open app, it is quit without asking (then reopened).")) {
                         Toggle("", isOn: Binding(get: { UserDefaults.standard.bool(forKey: "fermerSansDemander") },

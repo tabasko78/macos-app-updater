@@ -441,12 +441,23 @@ final class Moteur: ObservableObject {
     private func enLot(_ liste: [AppInstallee]) async {
         guard !liste.isEmpty, lot == nil else { return }
         lot = (0, liste.count)
+        var echecs: [String] = []
         for a in liste {
             await mettreAJour(a)
             selection.remove(a.id)
+            // Une app encore dans la liste après son passage n'a pas été mise à jour (Homebrew seulement :
+            // App Store, page et Terminal ne font qu'ouvrir quelque chose).
+            if case .brew = a.action, aMettreAJour.contains(where: { $0.id == a.id }) { echecs.append(a.nom) }
+            if case .installer = a.action, aMettreAJour.contains(where: { $0.id == a.id }) { echecs.append(a.nom) }
             lot = (lot!.fait + 1, liste.count)
         }
         lot = nil
+        // Bilan du lot, au lieu du message de la dernière app seulement.
+        let faites = liste.count - echecs.count
+        message = echecs.isEmpty
+            ? L.t("\(faites) mise\(faites > 1 ? "s" : "") à jour terminée\(faites > 1 ? "s" : "")", "\(faites) update\(faites > 1 ? "s" : "") done")
+            : L.t("\(faites) sur \(liste.count) terminées. Échecs : \(echecs.joined(separator: ", ")) (détail dans la sortie Homebrew).",
+                  "\(faites) of \(liste.count) done. Failed: \(echecs.joined(separator: ", ")) (details in the Homebrew output).")
     }
 
     /// Ferme l'app si elle tourne, après l'avoir proposé (sauf « Ne plus demander »). Si elle refuse de se fermer
