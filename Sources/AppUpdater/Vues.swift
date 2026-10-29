@@ -193,9 +193,12 @@ struct LigneApp: View {
         Button(L.t("Ouvrir", "Open")) { m.ouvrir(app) }
         Button(L.t("Afficher dans le Finder", "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: app.chemin)]) }
         if let k = app.cask {
-            Button(L.t("Copier « brew \(k.token) »", "Copy “brew \(k.token)”")) {
+            Button(L.t("Copier la commande Homebrew", "Copy the Homebrew command")) {
+                let commande = "brew install --cask --force \(k.token)"
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString("brew install --cask --force \(k.token)", forType: .string)
+                NSPasteboard.general.setString(commande, forType: .string)
+                // Sans retour visible, on croyait que rien ne se passait.
+                m.message = L.t("Copié dans le presse-papier : \(commande)", "Copied to the clipboard: \(commande)")
             }
         }
         Menu(L.t("Classer comme", "Classify as")) {
