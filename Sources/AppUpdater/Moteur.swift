@@ -387,7 +387,7 @@ final class Moteur: ObservableObject {
         // HOMEBREW_AUTO_UPDATE_SECS : Homebrew rafraîchit son catalogue s'il a plus de 5 min. Par défaut il attend
         // 24 h, et réinstallait alors l'ancienne version (Signal 8.32.0 « mis à jour » en 8.32.0 le 29/10/2026).
         let r = await Shell.lancer("/usr/bin/script", ["-q", "/dev/null", Homebrew.chemin] + args,
-                                   env: ["HOMEBREW_AUTO_UPDATE_SECS": "300", "SUDO_ASKPASS": Self.demandeMotDePasse()]) { morceau in
+                                   env: ["HOMEBREW_AUTO_UPDATE_SECS": "300", "SUDO_ASKPASS": MotDePasse.partage.askpass()]) { morceau in
             Task { @MainActor [weak self] in self?.lireSortie(morceau, id) }
         }
         if r.code == 0, let n = Inventaire.lire(chemin: a.chemin) {
@@ -406,6 +406,9 @@ final class Moteur: ObservableObject {
                 : L.t("\(a.nom) mise à jour", "\(a.nom) updated")
             try? await Task.sleep(for: .milliseconds(600))   // laisser voir la barre pleine
         } else {
+            if r.sortie.contains("incorrect password") || r.sortie.contains("Sorry, try again") || r.sortie.contains("no password was provided") {
+                MotDePasse.partage.oublier()
+            }
             message = L.t("Échec de la mise à jour de \(a.nom), le détail est dans la sortie Homebrew", "Updating \(a.nom) failed, see the Homebrew output")
         }
         if tournait { ouvrir(a, auPremierPlan: false) }   // rouverte en arrière-plan : on reste dans Mises à jour
@@ -549,23 +552,6 @@ final class Moteur: ObservableObject {
         return candidats.max { $0.0 < $1.0 }?.1
     }
 
-    /// Homebrew passe parfois par sudo (paquets .pkg, services à arrêter comme ShipIt de Visual Studio Code).
-    /// Sans terminal, sudo attendait un mot de passe que personne ne pouvait taper et la mise à jour ne finissait
-    /// jamais (29/10/2026). Avec SUDO_ASKPASS, Homebrew appelle `sudo -A`, qui demande le mot de passe par ce
-    /// script : une fenêtre macOS standard, rien n'est gardé. « activate » la fait passer devant toutes les
-    /// fenêtres : sans lui, elle pouvait s'ouvrir derrière et la mise à jour semblait arrêtée (Chrome, 29/10/2026).
-    static func demandeMotDePasse() -> String {
-        let f = Dossiers.support.appendingPathComponent("demande-mot-de-passe.sh")
-        let invite = L.t("Homebrew a besoin du mot de passe de ta session pour terminer la mise à jour.",
-                         "Homebrew needs your login password to finish the update.")
-        let script = """
-        #!/bin/zsh
-        /usr/bin/osascript -e 'activate' -e 'display dialog "\(invite.replacingOccurrences(of: "'", with: "’"))" with title "\(L.t("Mises à jour", "App Updater"))" default answer "" with hidden answer with icon caution buttons {"\(L.t("Annuler", "Cancel"))", "OK"} default button "OK"' -e 'text returned of result'
-        """
-        try? script.write(to: f, atomically: true, encoding: .utf8)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.path)
-        return f.path
-    }
 
     /// Les paquets .pkg demandent le mot de passe administrateur : seul un vrai Terminal peut le recevoir.
     private func ouvrirDansTerminal(_ a: AppInstallee, token: String) {
