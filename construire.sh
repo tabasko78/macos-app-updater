@@ -60,7 +60,12 @@ if [[ -n "$PERSO" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $NOM" -c "Set :CFBundleDisplayName $NOM" "$APP/Contents/Info.plist"
     cp "$PERSO" "$APP/Contents/Resources/perso.json"
 fi
-codesign --force --sign - "$APP"
+# Copie perso : signée avec son identité fixe (« macOS App Updater (local) », dans le trousseau), pour que macOS
+# lui garde ses autorisations d'une version à l'autre (Gestion des apps, trousseau, Little Snitch).
+# Version publique : signature jetable.
+SIG="-"
+[[ -n "$PERSO" ]] && SIG=$(plutil -extract signature raw "$PERSO" 2>/dev/null || echo "-")
+codesign --force --sign "$SIG" "$APP"
 echo "Built: $PWD/$APP"
 
 if [[ $ZIP == 1 ]]; then

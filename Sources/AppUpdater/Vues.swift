@@ -192,15 +192,6 @@ struct LigneApp: View {
         Divider()
         Button(L.t("Ouvrir", "Open")) { m.ouvrir(app) }
         Button(L.t("Afficher dans le Finder", "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: app.chemin)]) }
-        if let k = app.cask {
-            Button(L.t("Copier la commande Homebrew", "Copy the Homebrew command")) {
-                let commande = "brew install --cask --force \(k.token)"
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(commande, forType: .string)
-                // Sans retour visible, on croyait que rien ne se passait.
-                m.message = L.t("Copié dans le presse-papier : \(commande)", "Copied to the clipboard: \(commande)")
-            }
-        }
         Menu(L.t("Classer comme", "Classify as")) {
             ForEach(Classement.allCases) { c in
                 Button(c.libelle + " : " + c.explication) { m.classer(app, c) }
@@ -1108,6 +1099,25 @@ final class ChampSansFocusAuto: NSTextField {
     override func textDidEndEditing(_ notification: Notification) {
         super.textDidEndEditing(notification)
         autorise = false
+    }
+
+    /// Pendant la saisie : un clic ailleurs dans la fenêtre (case, carte, bouton) ou la touche Échap rend le clavier.
+    private var surveillance: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, surveillance == nil else { return }
+        surveillance = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .keyDown]) { [weak self] e in
+            guard let self, self.currentEditor() != nil, e.window === self.window else { return e }
+            if e.type == .keyDown && e.keyCode == 53 {           // Échap
+                self.window?.makeFirstResponder(nil)
+                return nil
+            }
+            if e.type == .leftMouseDown && !self.bounds.contains(self.convert(e.locationInWindow, from: nil)) {
+                self.window?.makeFirstResponder(nil)
+            }
+            return e
+        }
     }
 }
 
