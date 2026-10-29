@@ -58,7 +58,10 @@ struct LigneApp: View {
                         Text(r).font(T.police(10)).foregroundStyle(T.tresDoux).lineLimit(1)
                     }
                     if !compacte, let r = m.resume(app) {
-                        Text(r).font(T.police(11)).foregroundStyle(T.doux).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        let web = r.hasPrefix("web|")
+                        (Text(web ? String(r.dropFirst(4)) : r)
+                            + Text(web ? L.t("  · d'après le web", "  · from the web") : "").foregroundStyle(T.tresDoux))
+                            .font(T.police(11)).foregroundStyle(T.doux).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 8)

@@ -203,9 +203,15 @@ final class Moteur: ObservableObject {
         if let g = messageGemini, message == g { message = nil }
         messageGemini = nil
         for a in aMettreAJour + enAttente where resumes[cle(a)] == nil {
-            guard let notes = await Resumeur.notes(a) else { continue }
+            let notes = await Resumeur.notes(a)
             do {
-                resumes[cle(a)] = try await Resumeur.resumer(a, notes: notes, cle: k)
+                if let notes {
+                    resumes[cle(a)] = try await Resumeur.resumer(a, notes: notes, cle: k)
+                } else {
+                    // Pas de notes publiées (Homebrew) : Gemini cherche sur le web. « web| » marque l'origine.
+                    guard let r = try? await Resumeur.resumerWeb(a, cle: k) else { continue }
+                    resumes[cle(a)] = "web|" + r
+                }
                 Resumeur.enregistrer(resumes)
                 if let g = messageGemini, message == g { message = nil }
                 messageGemini = nil

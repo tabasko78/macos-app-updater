@@ -38,6 +38,10 @@ enum Resumeur {
         if (texte ?? "").isEmpty, let u = a.notesLien, let (d, _) = try? await URLSession.shared.data(from: u) {
             texte = String(decoding: d, as: UTF8.self)
         }
+        // Homebrew ne publie pas de notes : si l'app est publiée sur GitHub, celles de la publication.
+        if (texte ?? "").isEmpty, let depot = depotGitHub(a), let v = a.disponible {
+            texte = await notesGitHub(depot, version: v)
+        }
         guard var t = texte else { return nil }
         t = t.replacingOccurrences(of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
@@ -47,6 +51,40 @@ enum Resumeur {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
         return t.count < 20 ? nil : String(t.prefix(6000))
+    }
+
+    /// « proprietaire/depot » d'une app publiée sur GitHub : d'après l'adresse de téléchargement du cask
+    /// (github.com/…/releases/download/…), ou le fichier app-update.yml d'une app Electron.
+    static func depotGitHub(_ a: AppInstallee) -> String? {
+        if let u = a.cask?.url, let r = u.range(of: "github.com/") {
+            let morceaux = u[r.upperBound...].split(separator: "/")
+            if morceaux.count >= 2 { return "\(morceaux[0])/\(morceaux[1])" }
+        }
+        return Regles.depuisElectron(a)?.depot
+    }
+
+    /// Notes de la publication GitHub de cette version (étiquette « v1.2.3 » ou « 1.2.3 »), sinon de la dernière.
+    private static func notesGitHub(_ depot: String, version: String) async -> String? {
+        for chemin in ["releases/tags/v\(version)", "releases/tags/\(version)", "releases/latest"] {
+            var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(depot)/\(chemin)")!, timeoutInterval: 15)
+            req.setValue("AppUpdater/1.0", forHTTPHeaderField: "User-Agent")
+            guard let (d, rep) = try? await URLSession.shared.data(for: req), (rep as? HTTPURLResponse)?.statusCode == 200,
+                  let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  let corps = j["body"] as? String, !corps.isEmpty else { continue }
+            return corps
+        }
+        return nil
+    }
+
+    /// B : sans notes nulle part, Gemini cherche les nouveautés sur le web (recherche Google) avant de résumer.
+    static func resumerWeb(_ a: AppInstallee, cle: String) async throws -> String {
+        let consigne = L.t(
+            "Cherche sur le web les notes de version officielles de \(a.nom) version \(a.disponible ?? "") pour macOS. Résume en français, en deux phrases courtes au plus, ce que cette version apporte. Si tu ne trouves rien de fiable pour cette version précise, réponds seulement : RIEN. Pas d'introduction, pas de liste, pas de mise en forme, pas de source.",
+            "Search the web for the official release notes of \(a.nom) version \(a.disponible ?? "") for macOS. Summarize in English, in two short sentences at most, what this version brings. If you find nothing reliable for this exact version, answer only: NOTHING. No introduction, no list, no formatting, no sources.")
+        let r = try await appeler(consigne, cle: cle, rechercheWeb: true)
+        let mot = r.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)).uppercased()
+        guard mot != "RIEN", mot != "NOTHING" else { throw ErreurSource("") }
+        return r
     }
 
     static func resumer(_ a: AppInstallee, notes: String, cle: String) async throws -> String {
@@ -82,15 +120,16 @@ enum Resumeur {
         return .failure(derniere)
     }
 
-    private static func appeler(_ texte: String, cle: String, modele m: String? = nil, delai: TimeInterval = 60) async throws -> String {
+    private static func appeler(_ texte: String, cle: String, modele m: String? = nil, delai: TimeInterval = 60, rechercheWeb: Bool = false) async throws -> String {
         var req = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(m ?? modele):generateContent")!, timeoutInterval: delai)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(cle, forHTTPHeaderField: "x-goog-api-key")
-        let corps: [String: Any] = [
+        var corps: [String: Any] = [
             "contents": [["parts": [["text": texte]]]],
             "generationConfig": ["temperature": 0.2, "maxOutputTokens": 1024],
         ]
+        if rechercheWeb { corps["tools"] = [["google_search": [String: Any]()]] }
         req.httpBody = try JSONSerialization.data(withJSONObject: corps)
         let (data, rep) = try await URLSession.shared.data(for: req)
         let j = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -98,10 +137,37 @@ enum Resumeur {
             let m = (j?["error"] as? [String: Any])?["message"] as? String
             throw ErreurSource("Gemini : " + (m ?? "\(h.statusCode)"))
         }
+        Consommation.ajouter(modele: m ?? modele, reponse: j)
         let parties = ((j?["candidates"] as? [[String: Any]])?.first?["content"] as? [String: Any])?["parts"] as? [[String: Any]]
         guard let texte = parties?.compactMap({ $0["text"] as? String }).joined(), !texte.isEmpty else {
             throw ErreurSource(L.t("Gemini n'a rien répondu", "Gemini gave no answer"))
         }
         return texte.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Ce que Gemini a consommé avec la clé de l'app, cumulé depuis le premier appel et jamais remis à zéro :
+/// par modèle, nombre d'appels, jetons envoyés et reçus (réflexion comprise), recherches web.
+enum Consommation {
+    struct Compte: Codable { var appels = 0; var entree = 0; var sortie = 0; var recherches = 0 }
+    private static var fichier: URL { Dossiers.support.appendingPathComponent("gemini-consommation.json") }
+    private static let verrou = NSLock()
+
+    static func lire() -> [String: Compte] {
+        (try? Data(contentsOf: fichier)).flatMap { try? JSONDecoder().decode([String: Compte].self, from: $0) } ?? [:]
+    }
+
+    static func ajouter(modele: String, reponse j: [String: Any]?) {
+        guard let u = j?["usageMetadata"] as? [String: Any] else { return }
+        verrou.lock(); defer { verrou.unlock() }
+        var tout = lire()
+        var c = tout[modele] ?? Compte()
+        c.appels += 1
+        c.entree += (u["promptTokenCount"] as? Int ?? 0) + (u["toolUsePromptTokenCount"] as? Int ?? 0)
+        c.sortie += (u["candidatesTokenCount"] as? Int ?? 0) + (u["thoughtsTokenCount"] as? Int ?? 0)
+        let ancrage = ((j?["candidates"] as? [[String: Any]])?.first?["groundingMetadata"] as? [String: Any])
+        c.recherches += (ancrage?["webSearchQueries"] as? [Any])?.count ?? 0
+        tout[modele] = c
+        try? JSONEncoder().encode(tout).write(to: fichier, options: .atomic)
     }
 }
