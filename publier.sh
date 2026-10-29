@@ -13,9 +13,7 @@ NV="${V%.*}.$(( ${V##*.} + 1 ))"
 
 ./construire.sh --public --zip
 git add -A
-git commit -q -m "v$NV: $NOTES
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -q -m "v$NV: $NOTES"
 git push -q
 gh release create "v$NV" "build/macOS App Updater.zip" --title "v$NV" --notes "$NOTES"
 echo "Published v$NV"
