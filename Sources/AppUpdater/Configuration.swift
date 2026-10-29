@@ -31,6 +31,21 @@ enum Langue: String, CaseIterable, Identifiable {
     }
 }
 
+/// Où l'app se montre : barre des menus, Dock, ou les deux.
+enum Affichage: String, CaseIterable, Identifiable {
+    case menu, dock, lesDeux
+    var id: String { rawValue }
+    var libelle: String {
+        switch self {
+        case .menu: L.t("Barre des menus", "Menu bar")
+        case .dock: "Dock"
+        case .lesDeux: L.t("Les deux", "Both")
+        }
+    }
+    var menu: Bool { self != .dock }
+    var dock: Bool { self != .menu }
+}
+
 enum L {
     static var choix: Langue {
         UserDefaults.standard.string(forKey: "langue").flatMap(Langue.init(rawValue:)) ?? ConfigApp.langueParDefaut

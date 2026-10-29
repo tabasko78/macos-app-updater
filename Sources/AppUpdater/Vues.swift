@@ -118,7 +118,7 @@ struct LigneApp: View {
 
     private var libelle: String {
         switch app.action {
-        case .brew(_, let terminal): terminal ? L.t("Installer…", "Install…") : L.t("Mettre à jour", "Update")
+        case .brew: L.t("Mettre à jour", "Update")
         case .installer: L.t("Mettre à jour", "Update")
         case .appStore: "App Store"
         case .telecharger: L.t("Télécharger", "Download")
@@ -131,7 +131,7 @@ struct LigneApp: View {
     private var aide: String {
         switch app.action {
         case .brew(let t, let terminal):
-            terminal ? L.t("Ouvre le Terminal : ce paquet demande le mot de passe de ta session (brew \(t))", "Opens Terminal: this package asks for your login password (brew \(t))")
+            terminal ? L.t("Installe la nouvelle version par Homebrew (brew \(t)) ; ton mot de passe sera demandé", "Installs the new version with Homebrew (brew \(t)); your password will be asked for")
                      : L.t("Installe la nouvelle version par Homebrew (brew \(t)), l'app est fermée puis rouverte", "Installs the new version with Homebrew (brew \(t)); the app is quit and reopened")
         case .installer(let u, let sha):
             L.t("Télécharge \(u.lastPathComponent)\(sha != nil ? ", vérifie son empreinte" : ""), contrôle la signature de l'éditeur, puis remplace l'app (l'ancienne part à la Corbeille)", "Downloads \(u.lastPathComponent)\(sha != nil ? ", checks its hash" : ""), checks the developer signature, then replaces the app (the old one goes to the Trash)")
@@ -504,6 +504,13 @@ struct ReglagesVue: View {
                         ForEach([1, 3, 6, 12, 24], id: \.self) { h in
                             Button(h == 24 ? L.t("1 fois par jour", "once a day") : L.t("toutes les \(h) h", "every \(h) h")) { m.frequence = h }
                                 .buttonStyle(Puce(active: m.frequence == h))
+                        }
+                    }
+                }
+                carte(L.t("Afficher l'app dans", "Show the app in"), L.t("Dans le Dock, l'icône porte le nombre de mises à jour, et un clic ouvre la fenêtre.", "In the Dock, the icon shows the number of updates, and a click opens the window.")) {
+                    HStack(spacing: 6) {
+                        ForEach(Affichage.allCases) { a in
+                            Button(a.libelle) { m.affichage = a }.buttonStyle(Puce(active: m.affichage == a))
                         }
                     }
                 }

@@ -31,6 +31,10 @@ final class Moteur: ObservableObject {
     }
     @Published var frequence: Int { didSet { reglages.set(frequence, forKey: "frequence"); planifier() } }   // en heures
     @Published var notifications: Bool { didSet { reglages.set(notifications, forKey: "notifications") } }
+    @Published var affichage: Affichage {
+        didSet { reglages.set(affichage.rawValue, forKey: "affichage"); appliquerAffichage?() }
+    }
+    var appliquerAffichage: (() -> Void)?                // posé par le Delegue, qui tient l'icône et le Dock
 
     private var contexte = Contexte()
     private var notifiees: Set<String>
@@ -43,12 +47,17 @@ final class Moteur: ObservableObject {
         ignorees = reglages.dictionary(forKey: "ignorees") as? [String: String] ?? [:]
         nonSuivies = Set(reglages.stringArray(forKey: "nonSuivies") ?? [])
         notifiees = Set(reglages.stringArray(forKey: "notifiees") ?? [])
+        // Ouverture à la connexion : macOS la rattache à l'emplacement de l'app. Si l'app a été déplacée
+        // (dans /Applications par exemple), on la réinscrit depuis son nouvel emplacement.
+        let voulu = reglages.object(forKey: "ouvrirConnexion") as? Bool ?? (SMAppService.mainApp.status == .enabled)
+        if voulu && SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
         lancementSession = SMAppService.mainApp.status == .enabled
         historique = Historique.journal()
         theme = T.nom
         langue = L.choix
         frequence = reglages.object(forKey: "frequence") as? Int ?? 6
         notifications = reglages.object(forKey: "notifications") as? Bool ?? true
+        affichage = reglages.string(forKey: "affichage").flatMap(Affichage.init(rawValue:)) ?? .menu
         planifier()
         surveillerApplications()
         Task { await verifier() }
@@ -214,6 +223,7 @@ final class Moteur: ObservableObject {
             message = L.t("Ouverture de session : \(error.localizedDescription)", "Open at login: \(error.localizedDescription)")
         }
         lancementSession = SMAppService.mainApp.status == .enabled
+        reglages.set(oui, forKey: "ouvrirConnexion")
     }
 
     func ouvrir(_ a: AppInstallee, auPremierPlan: Bool = true) {
@@ -238,7 +248,8 @@ final class Moteur: ObservableObject {
         case .ouvrirApp:
             ouvrir(a)
         case .brew(let token, let terminal):
-            if terminal { ouvrirDansTerminal(a, token: token) } else { await brew(a, token: token) }
+            _ = terminal
+            await brew(a, token: token)
         case .installer(let u, let sha):
             await installerDirect(a, u, sha)
         case .aucune:
@@ -335,7 +346,7 @@ final class Moteur: ObservableObject {
         // HOMEBREW_AUTO_UPDATE_SECS : Homebrew rafraîchit son catalogue s'il a plus de 5 min. Par défaut il attend
         // 24 h, et réinstallait alors l'ancienne version (Signal 8.32.0 « mis à jour » en 8.32.0 le 29/10/2026).
         let r = await Shell.lancer("/usr/bin/script", ["-q", "/dev/null", Homebrew.chemin] + args,
-                                   env: ["HOMEBREW_AUTO_UPDATE_SECS": "300"]) { morceau in
+                                   env: ["HOMEBREW_AUTO_UPDATE_SECS": "300", "SUDO_ASKPASS": Self.demandeMotDePasse()]) { morceau in
             Task { @MainActor [weak self] in self?.lireSortie(morceau, id) }
         }
         if r.code == 0, let n = Inventaire.lire(chemin: a.chemin) {
@@ -495,6 +506,23 @@ final class Moteur: ObservableObject {
             return (d, t.int64Value)
         }
         return candidats.max { $0.0 < $1.0 }?.1
+    }
+
+    /// Homebrew passe parfois par sudo (paquets .pkg, services à arrêter comme ShipIt de Visual Studio Code).
+    /// Sans terminal, sudo attendait un mot de passe que personne ne pouvait taper et la mise à jour ne finissait
+    /// jamais (29/10/2026). Avec SUDO_ASKPASS, Homebrew appelle `sudo -A`, qui demande le mot de passe par ce
+    /// script : une fenêtre macOS standard, rien n'est gardé.
+    static func demandeMotDePasse() -> String {
+        let f = Dossiers.support.appendingPathComponent("demande-mot-de-passe.sh")
+        let invite = L.t("Homebrew a besoin du mot de passe de ta session pour terminer la mise à jour.",
+                         "Homebrew needs your login password to finish the update.")
+        let script = """
+        #!/bin/zsh
+        /usr/bin/osascript -e 'display dialog "\(invite.replacingOccurrences(of: "'", with: "’"))" with title "\(L.t("Mises à jour", "App Updater"))" default answer "" with hidden answer with icon caution buttons {"\(L.t("Annuler", "Cancel"))", "OK"} default button "OK"' -e 'text returned of result'
+        """
+        try? script.write(to: f, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.path)
+        return f.path
     }
 
     /// Les paquets .pkg demandent le mot de passe administrateur : seul un vrai Terminal peut le recevoir.

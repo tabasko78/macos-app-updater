@@ -23,8 +23,8 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var abonnementHauteur: AnyCancellable?
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        NSApp.setActivationPolicy(.accessory)
         moteur.montrerFenetre = { [weak self] in self?.montrerFenetre() }
+        moteur.appliquerAffichage = { [weak self] in self?.appliquerAffichage() }
 
         icone = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         icone.button?.target = self
@@ -41,6 +41,7 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.async { self?.majIcone() }
         }
         majIcone()
+        appliquerAffichage()
         // La fenêtre suit la hauteur de son contenu (au plus 30 lignes, puis la liste défile).
         abonnementHauteur = moteur.$hauteurFenetre
             .removeDuplicates()
@@ -55,10 +56,22 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
 
+    /// Réglages > Afficher l'app dans : l'icône de la barre des menus, celle du Dock, ou les deux.
+    /// En « Barre des menus » seule, l'app ne passe dans le Dock que le temps que la fenêtre est ouverte.
+    private func appliquerAffichage() {
+        let a = moteur.affichage
+        icone.isVisible = a.menu
+        let fenetreOuverte = fenetre?.isVisible ?? false
+        NSApp.setActivationPolicy(a.dock || fenetreOuverte ? .regular : .accessory)
+        majIcone()
+    }
+
     private func majIcone() {
         let n = moteur.aMettreAJour.count
         icone.button?.image = NSImage(systemSymbolName: n > 0 ? "arrow.down.app.fill" : "arrow.down.app", accessibilityDescription: L.t("Mises à jour", "App Updater"))
         icone.button?.title = n > 0 ? " \(n)" : ""
+        // Pastille rouge sur l'icône du Dock, quand elle y est.
+        NSApp.dockTile.badgeLabel = moteur.affichage.dock && n > 0 ? "\(n)" : nil
     }
 
     @objc private func clic() {
@@ -112,6 +125,6 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ n: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        if !moteur.affichage.dock { NSApp.setActivationPolicy(.accessory) }
     }
 }

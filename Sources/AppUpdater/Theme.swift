@@ -110,7 +110,7 @@ enum Boutons {
 
     static func teinte(_ a: Action) -> Teinte {
         switch a {
-        case .brew(_, false), .installer: mettreAJour
+        case .brew, .installer: mettreAJour
         case .appStore: appStore
         default: manuel
         }
