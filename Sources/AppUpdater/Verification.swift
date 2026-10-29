@@ -81,10 +81,11 @@ enum Verification {
             return a
         }
         // Un saut de version majeure (Parallels 26 → 27) peut demander une nouvelle licence payante.
-        if a.aJour == false, a.remarque == nil, let d = a.disponible,
+        if a.aJour == false, let d = a.disponible,
            let x = Versions.morceaux(a.versionAffichee).first.flatMap({ Int($0) }),
            let y = Versions.morceaux(d).first.flatMap({ Int($0) }), y > x, x < 50 {   // les navigateurs (Firefox 158) changent de majeure chaque mois
-            a.remarque = L.t("nouvelle version majeure, la licence peut être payante", "new major version, the license may be paid")
+            a.majeure = true
+            if a.remarque == nil { a.remarque = L.t("nouvelle version majeure, la licence peut être payante", "new major version, the license may be paid") }
         }
         return a
     }
@@ -97,6 +98,8 @@ enum Verification {
             a.source = .appStore
             if let f = c.mas[a.bundleId.lowercased()] {
                 a.disponible = f.version
+                a.datePublication = f.date
+                a.notes = f.notes
                 a.aJour = !Versions.plusRecent(f.version, que: a.versionAffichee)
                 a.action = f.url.map { .appStore($0) } ?? .aucune
             } else {
@@ -108,6 +111,8 @@ enum Verification {
         if let p = c.publications[a.bundleId] {
             a.source = p.source
             a.disponible = p.version
+            a.datePublication = p.date
+            a.notes = p.notes
             a.aJour = !Versions.plusRecent(p.version, que: a.versionAffichee)
             if let f = p.fichier {
                 a.action = .installer(f, sha256: p.sha256)
@@ -122,6 +127,9 @@ enum Verification {
             a.source = .sparkle
             let dispo = e.court ?? e.build!
             a.disponible = dispo
+            a.datePublication = e.date
+            a.notes = e.notes
+            a.notesLien = e.notesLien
             if let b = e.build {
                 // sparkle:version se compare à CFBundleVersion, comme le fait Sparkle
                 a.aJour = !Versions.plusRecent(b, que: a.build.isEmpty ? a.version : a.build)

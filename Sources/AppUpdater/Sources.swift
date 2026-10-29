@@ -143,6 +143,9 @@ enum Sparkle {
         var url: URL?
         var canal: String?
         var minOS: String?
+        var date: Date?
+        var notes: String?
+        var notesLien: URL?
     }
 
     static func verifier(_ feed: URL) async throws -> Element? {
@@ -197,6 +200,14 @@ final class AnalyseurAppcast: NSObject, XMLParserDelegate {
     }
 
     func parser(_ p: XMLParser, foundCharacters s: String) { texte += s }
+    func parser(_ p: XMLParser, foundCDATA d: Data) { texte += String(decoding: d, as: UTF8.self) }
+
+    private static let formatDate: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+        return f
+    }()
 
     func parser(_ p: XMLParser, didEndElement n: String, namespaceURI: String?, qualifiedName: String?) {
         let t = texte.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -209,6 +220,9 @@ final class AnalyseurAppcast: NSObject, XMLParserDelegate {
         case "sparkle:shortVersionString" where !t.isEmpty: courant?.court = t
         case "sparkle:channel" where !t.isEmpty: courant?.canal = t
         case "sparkle:minimumSystemVersion" where !t.isEmpty: courant?.minOS = t
+        case "pubDate" where !t.isEmpty: courant?.date = Self.formatDate.date(from: t)
+        case "description" where !t.isEmpty && courant != nil: courant?.notes = t
+        case "sparkle:releaseNotesLink" where !t.isEmpty: courant?.notesLien = URL(string: t)
         default: break
         }
         texte = ""
@@ -221,6 +235,8 @@ enum AppStore {
     struct Fiche: Sendable {
         let version: String
         let url: URL?
+        var date: Date? = nil
+        var notes: String? = nil
     }
 
     static func verifier(_ ids: [String]) async throws -> [String: Fiche] {
@@ -234,7 +250,9 @@ enum AppStore {
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 for r in json?["results"] as? [[String: Any]] ?? [] {
                     guard let b = r["bundleId"] as? String, let v = r["version"] as? String else { continue }
-                    res[b.lowercased()] = Fiche(version: v, url: (r["trackViewUrl"] as? String).flatMap(URL.init(string:)))
+                    res[b.lowercased()] = Fiche(version: v, url: (r["trackViewUrl"] as? String).flatMap(URL.init(string:)),
+                                                date: (r["currentVersionReleaseDate"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) },
+                                                notes: r["releaseNotes"] as? String)
                 }
             }
         }
@@ -262,6 +280,8 @@ enum Regles {
         let source: Source
         var fichier: URL? = nil    // .zip ou .dmg de la nouvelle version, s'il est connu
         var sha256: String? = nil
+        var date: Date? = nil
+        var notes: String? = nil
     }
 
     /// Un fichier qu'Installeur sait ouvrir.
@@ -344,7 +364,9 @@ enum Regles {
         let j = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         guard var tag = j?["tag_name"] as? String else { throw ErreurSource((j?["message"] as? String) ?? L.t("dépôt GitHub sans publication", "GitHub repository without release")) }
         if tag.lowercased().hasPrefix("v") { tag.removeFirst() }
-        var p = Publication(version: tag, url: (j?["html_url"] as? String).flatMap(URL.init(string:)), source: .github)
+        var p = Publication(version: tag, url: (j?["html_url"] as? String).flatMap(URL.init(string:)), source: .github,
+                            date: (j?["published_at"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) },
+                            notes: j?["body"] as? String)
         let fichiers = j?["assets"] as? [[String: Any]] ?? []
         if let f = fichierMac(fichiers), let u = (f["browser_download_url"] as? String).flatMap(URL.init(string:)) {
             p.fichier = u

@@ -13,6 +13,8 @@ final class MotDePasse: @unchecked Sendable {
     private var secret: String?
     private var expire = Date.distantPast
     private var lance = false
+    /// Mises à jour automatiques : personne n'est devant l'écran, aucune fenêtre ne doit s'ouvrir.
+    var silencieux = false
     private let tube = Dossiers.support.appendingPathComponent("mot-de-passe.fifo").path
     private let script = Dossiers.support.appendingPathComponent("demande-mot-de-passe.sh").path
 
@@ -51,6 +53,7 @@ final class MotDePasse: @unchecked Sendable {
         verrou.lock()
         if let s = secret, Date() < expire { verrou.unlock(); return s }
         verrou.unlock()
+        if silencieux { return nil }
         var saisi: String?
         DispatchQueue.main.sync { saisi = Self.demander() }
         verrou.lock()

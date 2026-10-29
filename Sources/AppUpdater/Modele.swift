@@ -58,6 +58,7 @@ struct AppInstallee: Identifiable, Sendable {
     let build: String         // CFBundleVersion
     let feedSparkle: URL?
     let mas: Bool
+    var derniereUtilisation: Date? = nil   // relevée par Spotlight
 
     var source: Source = .aucune
     var disponible: String? = nil
@@ -65,12 +66,17 @@ struct AppInstallee: Identifiable, Sendable {
     var action: Action = .aucune
     var cask: CaskInfo? = nil
     var remarque: String? = nil
+    var majeure = false                    // saut de version majeure : jamais mise à jour automatiquement
+    var datePublication: Date? = nil       // quand la source la donne (App Store, GitHub, Sparkle)
+    var notes: String? = nil               // notes de version, quand la source les donne
+    var notesLien: URL? = nil              // ou l'adresse où les lire (Sparkle)
 
     var versionAffichee: String { version.isEmpty ? build : version }
 
     /// Les seuls champs lus sur le disque : le point de départ pour réévaluer une app.
     var brute: AppInstallee {
-        AppInstallee(chemin: chemin, nom: nom, bundleId: bundleId, version: version, build: build, feedSparkle: feedSparkle, mas: mas)
+        AppInstallee(chemin: chemin, nom: nom, bundleId: bundleId, version: version, build: build, feedSparkle: feedSparkle, mas: mas,
+                     derniereUtilisation: derniereUtilisation)
     }
 }
 

@@ -21,7 +21,10 @@ final class Moteur: ObservableObject {
     @Published var selection: Set<String> = []          // ids des apps cochées
     var montrerFenetre: (() -> Void)?
     @Published var hauteurFenetre: CGFloat = 0           // hauteur naturelle du contenu de la fenêtre
-    var journalOuvert = false                            // le Journal agrandit la fenêtre, sans jamais la réduire                   // posé par le Delegue, qui tient la fenêtre
+    var journalOuvert = false                            // le Journal agrandit la fenêtre, sans jamais la réduire
+    @Published var resumes: [String: String] = Resumeur.cache()   // bundle id@version → résumé Gemini
+    @Published var nouvelleVersionApp: Regles.Publication?        // version plus récente de cette app sur GitHub
+    @Published var majApp = false                                 // mise à jour de cette app en cours
 
     @Published var theme: ThemeNom { didSet { reglages.set(theme.rawValue, forKey: "theme") } }
     @Published var langue: Langue {
@@ -36,6 +39,10 @@ final class Moteur: ObservableObject {
         didSet { reglages.set(affichage.rawValue, forKey: "affichage"); appliquerAffichage?() }
     }
     var appliquerAffichage: (() -> Void)?                // posé par le Delegue, qui tient l'icône et le Dock
+    @Published var delai: Int { didSet { reglages.set(delai, forKey: "delai") } }             // jours avant de proposer une version
+    @Published var automatique: Bool { didSet { reglages.set(automatique, forKey: "automatique") } }
+    @Published var gemini: Bool { didSet { reglages.set(gemini, forKey: "gemini"); Task { await resumer() } } }
+    private var premieresVues: [String: Date] = Historique.premieresVues()   // bundle id@version → vue la 1re fois
 
     private var contexte = Contexte()
     private var notifiees: Set<String>
@@ -59,6 +66,9 @@ final class Moteur: ObservableObject {
         frequence = reglages.object(forKey: "frequence") as? Int ?? 6
         notifications = reglages.object(forKey: "notifications") as? Bool ?? true
         affichage = reglages.string(forKey: "affichage").flatMap(Affichage.init(rawValue:)) ?? .menu
+        delai = reglages.object(forKey: "delai") as? Int ?? 0
+        automatique = reglages.bool(forKey: "automatique")
+        gemini = reglages.bool(forKey: "gemini")
         planifier()
         surveillerApplications()
         Task { await verifier() }
@@ -104,7 +114,26 @@ final class Moteur: ObservableObject {
         nonSuivies.contains(a.bundleId) || (a.disponible != nil && ignorees[a.bundleId] == a.disponible)
     }
 
-    var aMettreAJour: [AppInstallee] { apps.filter { $0.aJour == false && !estIgnoree($0) } }
+    /// Les mises à jour proposées : disponibles, non ignorées, et « éprouvées » si un délai est réglé.
+    var aMettreAJour: [AppInstallee] { apps.filter { $0.aJour == false && !estIgnoree($0) && joursRestants($0) == nil } }
+
+    /// Les mises à jour trop récentes pour le délai choisi : affichées en attente, ni comptées ni proposées.
+    var enAttente: [AppInstallee] { apps.filter { $0.aJour == false && !estIgnoree($0) && joursRestants($0) != nil } }
+
+    private func cle(_ a: AppInstallee) -> String { a.bundleId + "@" + (a.disponible ?? "") }
+
+    /// Jours avant qu'une nouvelle version soit proposée, nil si elle l'est déjà. Elle compte depuis sa date de
+    /// publication quand la source la donne, sinon depuis le jour où l'app l'a vue pour la première fois.
+    func joursRestants(_ a: AppInstallee) -> Int? {
+        guard delai > 0 else { return nil }
+        let vue = premieresVues[cle(a)] ?? Date()
+        let depuis = min(a.datePublication ?? vue, vue)
+        let ecoules = Calendar.current.dateComponents([.day], from: depuis, to: Date()).day ?? 0
+        let reste = delai - ecoules
+        return reste > 0 ? reste : nil
+    }
+
+    func resume(_ a: AppInstallee) -> String? { resumes[cle(a)] }
 
     // MARK: - Vérification
 
@@ -119,9 +148,110 @@ final class Moteur: ObservableObject {
         let restantes = Set(cochables.map(\.id))
         selection = selection.intersection(restantes)
         enCours = false
+        retenirPremieresVues()
         comparerAvecLaDerniereFois()
         notifier()
         mesurerTailles()
+        await verifierApp()
+        if automatique { await mettreAJourAutomatiquement() }
+        await resumer()
+    }
+
+    private func retenirPremieresVues() {
+        var nouvelles: [String: Date] = [:]
+        for a in apps where a.aJour == false { nouvelles[cle(a)] = premieresVues[cle(a)] ?? Date() }
+        premieresVues = nouvelles
+        Historique.enregistrer(premieresVues: nouvelles)
+    }
+
+    // MARK: - Mises à jour automatiques
+
+    /// Réglage « Mises à jour automatiques » : les apps proposées s'installent seules, sauf celles qui sont
+    /// ouvertes, celles qui demanderaient le mot de passe (paquets, apps au nom du système) et les versions majeures.
+    private func mettreAJourAutomatiquement() async {
+        let candidates = aMettreAJour.filter { a in
+            guard !a.majeure else { return false }
+            switch a.action {
+            case .brew(_, false), .installer: break
+            default: return false
+            }
+            let ouverte = !NSRunningApplication.runningApplications(withBundleIdentifier: a.bundleId)
+                .filter { $0.bundleURL?.path == a.chemin }.isEmpty
+            let proprietaire = (try? FileManager.default.attributesOfItem(atPath: a.chemin))?[.ownerAccountName] as? String
+            return !ouverte && proprietaire == NSUserName()
+        }
+        guard !candidates.isEmpty, lot == nil else { return }
+        MotDePasse.partage.silencieux = true   // jamais de fenêtre de mot de passe sans quelqu'un devant
+        defer { MotDePasse.partage.silencieux = false }
+        let avant = Set(aMettreAJour.map(\.id))
+        await enLot(candidates)
+        let faites = candidates.filter { c in avant.contains(c.id) && !aMettreAJour.contains { $0.id == c.id } }
+        guard !faites.isEmpty, notifications else { return }
+        envoyerNotification(faites.count == 1 ? L.t("1 app mise à jour automatiquement", "1 app updated automatically")
+                                              : L.t("\(faites.count) apps mises à jour automatiquement", "\(faites.count) apps updated automatically"),
+                            faites.map(\.nom).joined(separator: ", "))
+    }
+
+    // MARK: - Résumés Gemini
+
+    /// Résume les notes de version des mises à jour en vue, une seule fois par version.
+    func resumer() async {
+        guard gemini, let k = Resumeur.cle else { return }
+        for a in aMettreAJour + enAttente where resumes[cle(a)] == nil {
+            guard let notes = await Resumeur.notes(a) else { continue }
+            do {
+                resumes[cle(a)] = try await Resumeur.resumer(a, notes: notes, cle: k)
+                Resumeur.enregistrer(resumes)
+            } catch {
+                message = error.localizedDescription
+                return
+            }
+        }
+    }
+
+    // MARK: - Mise à jour de cette app
+
+    static let depotApp = "tabasko78/macos-app-updater"
+    static var versionApp: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
+    /// Une copie perso (réglages propres, perso.json) ne se remplace pas par la version publique : elle signale seulement.
+    static var copiePerso: Bool { ConfigApp.perso != nil }
+
+    private func verifierApp() async {
+        guard let p = try? await Regles.github(Self.depotApp), Versions.plusRecent(p.version, que: Self.versionApp) else {
+            nouvelleVersionApp = nil
+            return
+        }
+        nouvelleVersionApp = p
+    }
+
+    func mettreAJourApp() async {
+        guard let p = nouvelleVersionApp else { return }
+        guard !Self.copiePerso, let f = p.fichier else {
+            if let u = p.url { NSWorkspace.shared.open(u) }
+            return
+        }
+        majApp = true
+        defer { majApp = false }
+        do {
+            let fichier = try await Installeur.telecharger(f) { _, _ in }
+            defer { Installeur.nettoyer(fichier) }
+            if let sha = p.sha256, try Installeur.empreinte(fichier) != sha.lowercased() {
+                throw ErreurSource(L.t("empreinte du fichier incorrecte, téléchargement refusé", "wrong file hash, download rejected"))
+            }
+            let nouvelle = try await Installeur.extraire(fichier)
+            let id = (NSDictionary(contentsOfFile: nouvelle.path + "/Contents/Info.plist") as? [String: Any])?["CFBundleIdentifier"] as? String
+            guard id == Bundle.main.bundleIdentifier else { throw ErreurSource(L.t("le fichier téléchargé n'est pas cette app", "the downloaded file is not this app")) }
+            let moi = Bundle.main.bundlePath
+            try await Installeur.remplacer(moi, par: nouvelle)
+            // Relance la nouvelle version une seconde après la fermeture de celle-ci.
+            let relance = Process()
+            relance.executableURL = URL(fileURLWithPath: "/bin/sh")
+            relance.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", moi]
+            try relance.run()
+            NSApp.terminate(nil)
+        } catch {
+            message = L.t("Mise à jour de l'app impossible : ", "Could not update the app: ") + error.localizedDescription
+        }
     }
 
     /// Mesure en arrière-plan, app par app ; seules les apps nouvelles ou changées de version sont remesurées.
@@ -660,7 +790,10 @@ final class Moteur: ObservableObject {
         reglages.set(Array(notifiees), forKey: "notifiees")
         guard notifications else { return }
         let titre = nouvelles.count == 1 ? L.t("1 mise à jour disponible", "1 update available") : L.t("\(nouvelles.count) mises à jour disponibles", "\(nouvelles.count) updates available")
-        let corps = nouvelles.map(\.nom).joined(separator: ", ")
+        envoyerNotification(titre, nouvelles.map(\.nom).joined(separator: ", "))
+    }
+
+    private func envoyerNotification(_ titre: String, _ corps: String) {
         let centre = UNUserNotificationCenter.current()
         centre.requestAuthorization(options: [.alert, .sound]) { ok, _ in
             guard ok else { return }

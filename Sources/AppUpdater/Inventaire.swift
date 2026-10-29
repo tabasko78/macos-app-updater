@@ -36,7 +36,8 @@ enum Inventaire {
             version: (info["CFBundleShortVersionString"] as? String ?? "").trimmingCharacters(in: .whitespaces),
             build: (info["CFBundleVersion"] as? String ?? "").trimmingCharacters(in: .whitespaces),
             feedSparkle: (info["SUFeedURL"] as? String).flatMap { URL(string: $0.trimmingCharacters(in: .whitespaces)) },
-            mas: mas
+            mas: mas,
+            derniereUtilisation: NSMetadataItem(url: URL(fileURLWithPath: chemin))?.value(forAttribute: "kMDItemLastUsedDate") as? Date
         )
     }
 }

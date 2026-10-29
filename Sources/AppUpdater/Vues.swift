@@ -26,11 +26,24 @@ struct LigneApp: View {
 
     private var largeurBouton: CGFloat { compacte ? 116 : 132 }
 
+    /// « 2,28 Go · il y a 3 jours » : taille sur le disque et dernière utilisation, quand elles sont connues.
+    private var details: String? {
+        var d: [String] = []
+        if let t = m.tailles[app.chemin] { d.append(Desinstalleur.lisible(t)) }
+        if !compacte, let u = app.derniereUtilisation {
+            let f = RelativeDateTimeFormatter()
+            f.locale = L.locale
+            f.unitsStyle = .full
+            d.append(L.t("utilisée ", "used ") + f.localizedString(for: u, relativeTo: Date()))
+        }
+        return d.isEmpty ? nil : d.joined(separator: " · ")
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
                 if !compacte {
-                    if app.aJour == false && app.action != .aucune && !m.estIgnoree(app) {
+                    if app.aJour == false && app.action != .aucune && !m.estIgnoree(app) && m.joursRestants(app) == nil {
                         CaseACocher(cochee: m.selection.contains(app.id)) { m.basculer(app) }
                     } else {
                         Color.clear.frame(width: 18, height: 18)
@@ -40,12 +53,13 @@ struct LigneApp: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(app.nom).font(T.police(compacte ? 12 : 13, .semibold)).foregroundStyle(T.texte).lineLimit(1)
-                        if let t = m.tailles[app.chemin] {
-                            Text("(\(Desinstalleur.lisible(t)))").font(T.police(compacte ? 10 : 11)).foregroundStyle(T.tresDoux).fixedSize()
-                        }
+                        if let d = details { Text("(\(d))").font(T.police(compacte ? 10 : 11)).foregroundStyle(T.tresDoux).fixedSize() }
                     }
                     if !compacte, let r = app.remarque {
                         Text(r).font(T.police(10)).foregroundStyle(T.tresDoux).lineLimit(1)
+                    }
+                    if !compacte, let r = m.resume(app) {
+                        Text(r).font(T.police(11)).foregroundStyle(T.doux).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 8)
@@ -102,7 +116,11 @@ struct LigneApp: View {
     }
 
     @ViewBuilder private var bouton: some View {
-        if m.progression[app.id] != nil {
+        if app.aJour == false, let j = m.joursRestants(app) {
+            Text(L.t("éprouvée dans \(j) j", "proven in \(j) d")).font(T.police(11)).foregroundStyle(T.tresDoux)
+                .help(L.t("Réglages > Délai avant de proposer une version", "Settings > Delay before offering a version"))
+                .frame(width: largeurBouton, alignment: .trailing)
+        } else if m.progression[app.id] != nil {
             Text(L.t("en cours", "updating")).font(T.police(11)).foregroundStyle(T.doux).frame(width: largeurBouton, alignment: .trailing)
         } else if app.aJour == false, app.action != .aucune {
             Button(libelle) { Task { await m.mettreAJour(app) } }
@@ -208,13 +226,25 @@ enum Filtre: String, CaseIterable, Identifiable {
     }
 }
 
+enum Tri: CaseIterable, Identifiable {
+    case nom, taille, usage
+    var id: Self { self }
+    var libelle: String {
+        switch self {
+        case .nom: L.t("Nom", "Name")
+        case .taille: L.t("Taille", "Size")
+        case .usage: L.t("Dernière utilisation", "Last used")
+        }
+    }
+}
+
 final class EtatFenetre: ObservableObject {
     @Published var onglet: Onglet = .applications
     @Published var filtre: Filtre = .aMettreAJour
     @Published var recherche = ""
     @Published var sortieOuverte = false
     @Published var survolDepot = false
-    @Published var triTaille = false
+    @Published var tri: Tri = .nom
     @Published var source: Source? = nil   // nil : toutes les sources
 }
 
@@ -227,6 +257,7 @@ struct FenetreListe: View {
             FondTheme()
             VStack(alignment: .leading, spacing: 14) {
                 entete.padding(.bottom, 15)
+                if let p = m.nouvelleVersionApp { bandeauApp(p) }
                 switch etat.onglet {
                 case .applications: applications
                 case .journal: JournalVue()
@@ -262,6 +293,26 @@ struct FenetreListe: View {
         .sheet(item: $m.aDesinstaller) { DesinstallationVue(app: $0).environmentObject(m) }
     }
 
+    /// Une version plus récente de cette app est sortie sur GitHub.
+    private func bandeauApp(_ p: Regles.Publication) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles").foregroundStyle(T.accent)
+            Text(L.t("Nouvelle version de l'app : \(p.version) (tu as \(Moteur.versionApp))", "New version of the app: \(p.version) (you have \(Moteur.versionApp))"))
+                .font(T.police(12, .semibold)).foregroundStyle(T.texte)
+            Spacer()
+            if m.majApp {
+                ProgressView().controlSize(.small)
+            } else if Moteur.copiePerso || p.fichier == nil {
+                Button(L.t("Voir sur GitHub", "View on GitHub")) { Task { await m.mettreAJourApp() } }.buttonStyle(BoutonDiscret())
+            } else {
+                Button(L.t("Mettre à jour l'app", "Update the app")) { Task { await m.mettreAJourApp() } }
+                    .buttonStyle(BoutonPlein(teinte: Boutons.mettreAJour))
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .verre(10)
+    }
+
     private var entete: some View {
         HStack(alignment: .center, spacing: 12) {
             Text(L.t("Mises à jour", "App Updater"))
@@ -295,7 +346,7 @@ struct FenetreListe: View {
 
     private func appsDuFiltre(_ f: Filtre) -> [AppInstallee] {
         switch f {
-        case .aMettreAJour: m.aMettreAJour
+        case .aMettreAJour: m.aMettreAJour + m.enAttente
         case .toutes: m.apps
         case .sansSource: m.apps.filter { $0.source == .aucune && !m.estIgnoree($0) }
         case .ignorees: m.apps.filter { m.estIgnoree($0) }
@@ -313,8 +364,13 @@ struct FenetreListe: View {
         var base = appsDuFiltre(etat.filtre)
         if etat.filtre == .toutes, let src = etat.source { base = base.filter { $0.source == src } }
         if !etat.recherche.isEmpty { base = base.filter { $0.nom.localizedCaseInsensitiveContains(etat.recherche) } }
-        if etat.filtre == .toutes && etat.triTaille {
-            base.sort { (m.tailles[$0.chemin] ?? -1) > (m.tailles[$1.chemin] ?? -1) }   // la plus lourde en tête
+        if etat.filtre == .toutes {
+            switch etat.tri {
+            case .nom: break
+            case .taille: base.sort { (m.tailles[$0.chemin] ?? -1) > (m.tailles[$1.chemin] ?? -1) }   // la plus lourde en tête
+            case .usage:   // la moins utilisée en tête : jamais utilisée, puis la plus ancienne
+                base.sort { ($0.derniereUtilisation ?? .distantPast) < ($1.derniereUtilisation ?? .distantPast) }
+            }
         }
         return base
     }
@@ -325,7 +381,7 @@ struct FenetreListe: View {
         }
         HStack(spacing: 6) {
             ForEach(Filtre.allCases) { f in
-                Button("\(f.libelle) (\(appsDuFiltre(f).count))") { etat.filtre = f }.buttonStyle(Puce(active: etat.filtre == f))
+                Button("\(f.libelle) (\(f == .aMettreAJour ? m.aMettreAJour.count : appsDuFiltre(f).count))") { etat.filtre = f }.buttonStyle(Puce(active: etat.filtre == f))
             }
             Spacer(minLength: 12)
             HStack(spacing: 6) {
@@ -360,9 +416,10 @@ struct FenetreListe: View {
         if etat.filtre == .toutes {
             HStack(spacing: 6) {
                 Text(L.t("Trier par", "Sort by")).font(T.police(12)).foregroundStyle(T.tresDoux)
-                Button(L.t("Nom", "Name")) { etat.triTaille = false }.buttonStyle(Puce(active: !etat.triTaille))
-                Button(L.t("Taille", "Size")) { etat.triTaille = true }.buttonStyle(Puce(active: etat.triTaille))
-                if etat.triTaille {
+                ForEach(Tri.allCases) { t in
+                    Button(t.libelle) { etat.tri = t }.buttonStyle(Puce(active: etat.tri == t))
+                }
+                if etat.tri == .taille {
                     let total = m.tailles.values.reduce(0, +)
                     Text(L.t("· \(Desinstalleur.lisible(total)) au total", "· \(Desinstalleur.lisible(total)) in total")).font(T.police(12)).foregroundStyle(T.tresDoux)
                 }
@@ -515,8 +572,14 @@ struct JournalVue: View {
 
 // MARK: - Réglages
 
+final class EtatReglages: ObservableObject {
+    @Published var cleGemini = Resumeur.cle ?? ""
+    @Published var cleEnregistree = false
+}
+
 struct ReglagesVue: View {
     @EnvironmentObject var m: Moteur
+    @StateObject private var etat = EtatReglages()
 
     var body: some View {
         ListeAjustee(lignes: 7) {
@@ -540,6 +603,37 @@ struct ReglagesVue: View {
                         ForEach([1, 3, 6, 12, 24], id: \.self) { h in
                             Button(h == 24 ? L.t("1 fois par jour", "once a day") : L.t("toutes les \(h) h", "every \(h) h")) { m.frequence = h }
                                 .buttonStyle(Puce(active: m.frequence == h))
+                        }
+                    }
+                }
+                carte(L.t("Délai avant de proposer une version", "Delay before offering a version"),
+                      L.t("Une nouvelle version n'est proposée qu'une fois « éprouvée » : sortie depuis ce nombre de jours.", "A new version is only offered once “proven”: out for this many days.")) {
+                    HStack(spacing: 6) {
+                        ForEach([0, 1, 7, 15], id: \.self) { j in
+                            Button(j == 0 ? L.t("Aucun", "None") : L.t("\(j) j", "\(j) d")) { m.delai = j }.buttonStyle(Puce(active: m.delai == j))
+                        }
+                    }
+                }
+                carte(L.t("Mises à jour automatiques", "Automatic updates"),
+                      L.t("À chaque vérification, les apps proposées s'installent seules. Jamais les apps ouvertes, celles qui demandent ton mot de passe, ni les versions majeures.", "At every check, offered updates install by themselves. Never open apps, apps that need your password, or major versions.")) {
+                    Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
+                }
+                carte(L.t("Résumés des nouveautés (Gemini)", "What's new summaries (Gemini)"),
+                      L.t("Gemini résume en deux phrases les notes de version des mises à jour proposées, avec ta propre clé d'API (aistudio.google.com). Seules les notes de version lui sont envoyées.", "Gemini summarizes the release notes of offered updates in two sentences, with your own API key (aistudio.google.com). Only the release notes are sent.")) {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Toggle("", isOn: $m.gemini).toggleStyle(Interrupteur()).labelsHidden()
+                        if m.gemini {
+                            HStack(spacing: 6) {
+                                SecureField(L.t("Clé d'API", "API key"), text: $etat.cleGemini)
+                                    .textFieldStyle(.plain).font(T.police(12)).foregroundStyle(T.texte)
+                                    .padding(.horizontal, 10).padding(.vertical, 5).verre(8).frame(width: 220)
+                                Button(etat.cleEnregistree ? L.t("Enregistrée", "Saved") : L.t("Enregistrer", "Save")) {
+                                    Resumeur.cle = etat.cleGemini
+                                    etat.cleEnregistree = true
+                                    Task { await m.resumer() }
+                                }
+                                .buttonStyle(BoutonDiscret())
+                            }
                         }
                     }
                 }
@@ -706,6 +800,10 @@ struct PanneauMenu: View {
                 }
             }
             Text(sousTitre).font(T.police(11)).foregroundStyle(T.doux)
+            if let p = m.nouvelleVersionApp {
+                Text(L.t("Nouvelle version de l'app : \(p.version)", "New version of the app: \(p.version)"))
+                    .font(T.police(11, .semibold)).foregroundStyle(T.accent)
+            }
             if let msg = m.message {
                 Text(msg).font(T.police(10)).foregroundStyle(T.ambre).lineLimit(2)
             }

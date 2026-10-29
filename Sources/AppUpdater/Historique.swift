@@ -35,6 +35,19 @@ enum Historique {
         (try? Data(contentsOf: fichierVersions)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
+    /// bundle id@version → jour où l'app a vu cette version pour la première fois (délai « éprouvée »)
+    private static var fichierVues: URL { Dossiers.support.appendingPathComponent("premieres-vues.json") }
+
+    static func premieresVues() -> [String: Date] {
+        let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601
+        return (try? Data(contentsOf: fichierVues)).flatMap { try? d.decode([String: Date].self, from: $0) } ?? [:]
+    }
+
+    static func enregistrer(premieresVues v: [String: Date]) {
+        let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601
+        try? e.encode(v).write(to: fichierVues, options: .atomic)
+    }
+
     static func enregistrer(versions: [String: String]) {
         try? JSONEncoder().encode(versions).write(to: fichierVersions, options: .atomic)
     }
