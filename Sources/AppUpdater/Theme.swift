@@ -252,3 +252,23 @@ struct BarreProgression: View {
         .animation(.linear(duration: 0.25), value: valeur)
     }
 }
+
+/// Interrupteur des Réglages : petit, au dégradé du thème quand il est allumé, sombre quand il est éteint.
+struct Interrupteur: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let t = configuration.isOn ? Boutons.mettreAJour : Boutons.neutre
+        return Capsule()
+            .fill(LinearGradient(colors: [Color(hex: t.gauche), Color(hex: t.droite)], startPoint: .leading, endPoint: .trailing))
+            .overlay(Capsule().strokeBorder(.white.opacity(configuration.isOn ? 0.25 : 0.12), lineWidth: 0.5))
+            .frame(width: 28, height: 16)
+            .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(.white.opacity(configuration.isOn ? 0.95 : 0.55))
+                    .frame(width: 12, height: 12)
+                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+                    .padding(2)
+            }
+            .contentShape(Capsule())
+            .onTapGesture { withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { configuration.isOn.toggle() } }
+    }
+}

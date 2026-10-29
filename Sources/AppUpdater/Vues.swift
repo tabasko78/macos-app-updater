@@ -517,14 +517,14 @@ struct ReglagesVue: View {
                 carte(L.t("Fermer les apps sans demander", "Quit apps without asking"), L.t("Avant de mettre à jour une app ouverte, elle est fermée sans question (puis rouverte).", "Before updating an open app, it is quit without asking (then reopened).")) {
                     Toggle("", isOn: Binding(get: { UserDefaults.standard.bool(forKey: "fermerSansDemander") },
                                              set: { UserDefaults.standard.set($0, forKey: "fermerSansDemander"); m.objectWillChange.send() }))
-                        .toggleStyle(.switch).labelsHidden()
+                        .toggleStyle(Interrupteur()).labelsHidden()
                 }
                 carte(L.t("Notifications", "Notifications"), L.t("Une notification macOS quand une nouvelle mise à jour apparaît.", "A macOS notification when a new update shows up.")) {
-                    Toggle("", isOn: $m.notifications).toggleStyle(.switch).labelsHidden()
+                    Toggle("", isOn: $m.notifications).toggleStyle(Interrupteur()).labelsHidden()
                 }
                 carte(L.t("Ouvrir à la connexion", "Open at login"), L.t("L'app se lance seule à l'ouverture de ta session.", "The app starts by itself when you log in.")) {
                     Toggle("", isOn: Binding(get: { m.lancementSession }, set: { m.basculerLancementSession($0) }))
-                        .toggleStyle(.switch).labelsHidden()
+                        .toggleStyle(Interrupteur()).labelsHidden()
                 }
                 carte(L.t("Apps ignorées", "Ignored apps"), L.t("Elles se retrouvent dans le filtre « Ignorées » de l'onglet Applications, un clic droit les fait suivre à nouveau.", "They are listed under “Ignored” in the Apps tab; right-click to track them again.")) {
                     Text("\(m.apps.filter { m.estIgnoree($0) }.count)").font(T.police(18, .bold)).foregroundStyle(T.accent)
