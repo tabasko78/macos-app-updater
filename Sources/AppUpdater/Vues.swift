@@ -458,7 +458,10 @@ struct FenetreListe: View {
             }
             .padding(.horizontal, 10)
         }
-        ListeAjustee(lignes: liste.count) {
+        // Place gardée pour ce qui entoure la liste : la sortie Homebrew ouverte et les messages en plus.
+        ListeAjustee(lignes: liste.count,
+                     reserve: 300 + (etat.sortieOuverte && !m.sortieBrew.isEmpty ? 200 : 0)
+                         + CGFloat(min(m.avis.count, 6)) * 22 + (m.nouvelleVersionApp != nil ? 50 : 0)) {
             VStack(spacing: 6) {
                 ForEach(liste) { LigneApp(app: $0) }
                 if liste.isEmpty && !m.enCours {
@@ -987,6 +990,7 @@ final class Mesure: ObservableObject {
 struct ListeAjustee<Contenu: View>: View {
     let lignes: Int
     var maxLignes = 30
+    var reserve: CGFloat = 300          // hauteur d'écran gardée pour l'en-tête, les filtres, etc.
     @ViewBuilder let contenu: () -> Contenu
     @StateObject private var mesure = Mesure()
 
@@ -1003,7 +1007,7 @@ struct ListeAjustee<Contenu: View>: View {
     private var plafond: CGFloat {
         let trente = lignes > maxLignes ? mesure.hauteur / CGFloat(lignes) * CGFloat(maxLignes) : mesure.hauteur
         // Et jamais plus que l'écran, moins la place de l'en-tête, des filtres et de la barre de titre.
-        let ecran = (NSScreen.main?.visibleFrame.height ?? 900) - 300
+        let ecran = (NSScreen.main?.visibleFrame.height ?? 900) - reserve
         return min(trente, max(ecran, 200))
     }
 }
@@ -1046,7 +1050,7 @@ struct PileAvis: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(m.avis.prefix(limite)) { a in
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {   // le picto sur la ligne du texte
                     Image(systemName: "exclamationmark.circle").font(.system(size: compacte ? 10 : 11)).foregroundStyle(T.ambre)
                     Text(a.texte).font(T.police(compacte ? 10 : 11)).foregroundStyle(T.ambre)
                         .fixedSize(horizontal: false, vertical: true)

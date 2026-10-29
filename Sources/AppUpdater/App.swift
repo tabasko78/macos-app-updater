@@ -143,6 +143,8 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cadre.origin.y = cadre.maxY - voulue
         cadre.size.height = voulue
         if cadre.minY < ecran.minY { cadre.origin.y = ecran.minY }
+        // Et jamais le haut au-dessus de l'écran : les boutons de la fenêtre et l'en-tête resteraient cachés.
+        if cadre.maxY > ecran.maxY { cadre.origin.y = ecran.maxY - cadre.height }
         f.setFrame(cadre, display: true, animate: f.isVisible)
     }
 
