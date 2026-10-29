@@ -382,6 +382,7 @@ final class Moteur: ObservableObject {
             ? ["upgrade", "--cask", "--greedy", token]
             : ["install", "--cask", "--force", token]
         sortieBrew += "\n$ brew \(args.joined(separator: " "))\n"
+        await viderCacheSiAdresseFixe(a.cask)
         // Lancé dans un terminal simulé (script) : sans lui, Homebrew garde tout ce qu'il écrit
         // jusqu'à la fin, et les étapes n'arrivent qu'une fois l'installation terminée.
         // HOMEBREW_AUTO_UPDATE_SECS : Homebrew rafraîchit son catalogue s'il a plus de 5 min. Par défaut il attend
@@ -390,6 +391,7 @@ final class Moteur: ObservableObject {
                                    env: ["HOMEBREW_AUTO_UPDATE_SECS": "300", "SUDO_ASKPASS": MotDePasse.partage.askpass()]) { morceau in
             Task { @MainActor [weak self] in self?.lireSortie(morceau, id) }
         }
+        Self.consigner("brew " + args.joined(separator: " "), r.code, r.sortie)
         if r.code == 0, let n = Inventaire.lire(chemin: a.chemin) {
             progression[id] = 1
             etape[id] = L.t("Terminé", "Done")
@@ -410,6 +412,11 @@ final class Moteur: ObservableObject {
                 MotDePasse.partage.oublier()
             }
             message = L.t("Échec de la mise à jour de \(a.nom), le détail est dans la sortie Homebrew", "Updating \(a.nom) failed, see the Homebrew output")
+            // macOS interdit de modifier une app sans l'autorisation « Gestion des apps » (Chrome, 29/10/2026).
+            if r.sortie.contains("Operation not permitted") {
+                message = L.t("macOS a bloqué le remplacement de \(a.nom) : coche « macOS App Updater » dans Réglages Système > Confidentialité et sécurité > Gestion des apps, puis recommence.",
+                              "macOS blocked replacing \(a.nom): enable “macOS App Updater” in System Settings > Privacy & Security > App Management, then try again.")
+            }
         }
         if tournait { ouvrir(a, auPremierPlan: false) }   // rouverte en arrière-plan : on reste dans Mises à jour
     }
@@ -471,6 +478,30 @@ final class Moteur: ObservableObject {
         } else {
             etape[id] = L.t("Téléchargement · \(Desinstalleur.lisible(fait))", "Downloading · \(Desinstalleur.lisible(fait))")
         }
+    }
+
+    /// Certains casks téléchargent toujours la même adresse (Chrome : …/stable/googlechrome.dmg), sans numéro de
+    /// version ni empreinte. Homebrew réutilisait alors le fichier gardé en cache, donc l'ANCIENNE version
+    /// (Chrome 156.0.8078.73 au lieu de .74, 29/10/2026) : on l'efface avant, pour forcer un vrai téléchargement.
+    private func viderCacheSiAdresseFixe(_ k: CaskInfo?) async {
+        guard let k, let url = k.url, let v = k.version, !url.contains(v) else { return }
+        let r = await Shell.lancer(Homebrew.chemin, ["--cache", "--cask", k.token], env: ["HOMEBREW_NO_AUTO_UPDATE": "1"])
+        let chemin = r.sortie.trimmingCharacters(in: .whitespacesAndNewlines)
+        if r.code == 0, chemin.hasPrefix("/"), FileManager.default.fileExists(atPath: chemin) {
+            try? FileManager.default.removeItem(atPath: chemin)
+            sortieBrew += L.t("ancien fichier en cache effacé : ", "old cached file removed: ") + (chemin as NSString).lastPathComponent + "\n"
+        }
+    }
+
+    /// Chaque passage de Homebrew est gardé dans homebrew.log (dossier de l'app), pour comprendre un échec après coup.
+    nonisolated static func consigner(_ commande: String, _ code: Int32, _ sortie: String) {
+        let f = Dossiers.support.appendingPathComponent("homebrew.log")
+        let propre = sortie.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[A-Za-z]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\r", with: "\n")
+        let bloc = "\n=== \(Date().formatted(.iso8601)) · \(commande) · code \(code)\n\(propre)\n"
+        var ancien = (try? String(contentsOf: f, encoding: .utf8)) ?? ""
+        if ancien.count > 400_000 { ancien = String(ancien.suffix(200_000)) }
+        try? (ancien + bloc).write(to: f, atomically: true, encoding: .utf8)
     }
 
     /// Nettoie ce qu'écrit Homebrew (codes du terminal simulé) et en déduit l'étape.

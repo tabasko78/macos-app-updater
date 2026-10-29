@@ -31,6 +31,8 @@ A small menu bar app that checks every app in `/Applications` for updates and in
 
 The app lives in the menu bar: left click opens the window, right click a compact panel.
 
+To let it replace apps (Chrome, for example), allow it once in **System Settings → Privacy & Security → App Management**. When Homebrew needs your password, the app asks for it once and keeps it in memory for 10 minutes only.
+
 Requirements: macOS 15 or later, Apple silicon. [Homebrew](https://brew.sh) is recommended for one-click updates of the apps it knows.
 
 ## Build from source

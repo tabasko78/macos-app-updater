@@ -118,6 +118,8 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Icône dans le Dock seulement si le réglage le demande ; la fenêtre passe devant dans tous les cas.
         if moteur.affichage.dock { NSApp.setActivationPolicy(.regular) }
         fenetre?.makeKeyAndOrderFront(nil)
+        // Pas de curseur qui clignote dans la recherche à l'ouverture : rien n'a le focus tant qu'on ne clique pas.
+        DispatchQueue.main.async { [weak self] in self?.fenetre?.makeFirstResponder(nil) }
         NSApp.activate(ignoringOtherApps: true)
         ajusterHauteur(moteur.hauteurFenetre)   // la hauteur a pu être mesurée avant que la fenêtre existe
     }
