@@ -27,6 +27,53 @@ final class Moteur: ObservableObject {
     }
 
     func retirerAvis(_ a: Avis) { avis.removeAll { $0.id == a.id } }
+
+    /// Dernier échec de chaque app (id → raison en clair), affiché sous son nom jusqu'au prochain essai.
+    @Published var echecs: [String: String] = [:]
+
+    /// La raison d'un échec Homebrew, en une phrase, d'après ce qu'il a écrit.
+    nonisolated static func raisonEchec(_ sortie: String) -> String {
+        let s = sortie
+        if s.contains("Operation not permitted") {
+            return L.t("macOS bloque le remplacement : autorisation « Gestion des apps » manquante", "macOS blocks the replacement: “App Management” permission missing")
+        }
+        if s.contains("reports different checksum") {
+            return L.t("fichier refusé par Homebrew (empreinte différente, l'éditeur l'a sans doute changé) : réessayer demain", "file rejected by Homebrew (different hash, probably changed by the developer): try again tomorrow")
+        }
+        if s.contains("incorrect password") || s.contains("Sorry, try again") || s.contains("no password was provided") {
+            return L.t("mot de passe refusé ou non saisi", "password rejected or not entered")
+        }
+        if s.contains("shallow clone") { return L.t("Homebrew trop ancien pour se mettre à jour", "Homebrew too old to update itself") }
+        if s.contains("not writable") || s.contains("Permission denied") {
+            return L.t("Homebrew appartient à un autre compte de ce Mac", "Homebrew belongs to another account on this Mac")
+        }
+        if s.contains("Download failed") || s.contains("Failed to download") || s.contains("curl:") {
+            return L.t("téléchargement impossible : réessayer plus tard", "download failed: try again later")
+        }
+        if s.contains("depends_on macos") || s.contains("requires macOS") {
+            return L.t("demande une version de macOS plus récente", "needs a newer macOS")
+        }
+        let erreur = s.split(separator: "\n").last { $0.contains("Error:") }.map { String($0).replacingOccurrences(of: "Error:", with: "") }
+        return (erreur?.trimmingCharacters(in: .whitespaces)).map { String($0.prefix(160)) } ?? L.t("échec, voir la sortie Homebrew", "failed, see the Homebrew output")
+    }
+
+    /// Les lignes identiques à un chemin près (« chown: /Applications/…: Operation not permitted », des milliers de
+    /// fois) regroupées en une seule, suivie de « (répétée ×N) ».
+    nonisolated static func compresser(_ texte: String) -> String {
+        var sortie: [String] = []
+        var precedente = "", compte = 0
+        func vider() { if compte > 1 { sortie.append("    " + L.t("(répétée ×\(compte))", "(repeated ×\(compte))")) } }
+        for l in texte.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            let forme = l.replacingOccurrences(of: "/[^:\n]*", with: "…", options: .regularExpression)
+            if forme == precedente && !l.isEmpty { compte += 1; continue }
+            vider()
+            sortie.append(l)
+            precedente = forme
+            compte = 1
+        }
+        vider()
+        return sortie.joined(separator: "\n")
+    }
     @Published var sortieBrew = ""
     @Published var progression: [String: Double] = [:]   // id de l'app → 0…1, -1 tant que la taille est inconnue
     @Published var etape: [String: String] = [:]         // id de l'app → texte affiché sous la barre
@@ -594,6 +641,7 @@ final class Moteur: ObservableObject {
             Task { @MainActor [weak self] in self?.lireSortie(morceau, id) }
         }
         Self.consigner("brew " + args.joined(separator: " "), r.code, r.sortie)
+        echecs[id] = nil
         if r.code == 0, let n = Inventaire.lire(chemin: a.chemin) {
             progression[id] = 1
             etape[id] = L.t("Terminé", "Done")
@@ -613,6 +661,7 @@ final class Moteur: ObservableObject {
             if r.sortie.contains("incorrect password") || r.sortie.contains("Sorry, try again") || r.sortie.contains("no password was provided") {
                 MotDePasse.partage.oublier()
             }
+            echecs[id] = Self.raisonEchec(r.sortie)
             message = L.t("Échec de la mise à jour de \(a.nom), le détail est dans la sortie Homebrew", "Updating \(a.nom) failed, see the Homebrew output")
             // Homebrew vieillissant ou installé par un autre compte du Mac (iMac de 2017, 29/10/2026).
             if r.sortie.contains("shallow clone") {
@@ -674,6 +723,7 @@ final class Moteur: ObservableObject {
             try? await Task.sleep(for: .milliseconds(600))
         } catch {
             sortieBrew += L.t("échec : ", "failed: ") + error.localizedDescription + "\n"
+            echecs[id] = error.localizedDescription
             message = L.t("Échec de la mise à jour de \(a.nom) : \(error.localizedDescription)", "Updating \(a.nom) failed: \(error.localizedDescription)")
         }
     }
@@ -706,8 +756,8 @@ final class Moteur: ObservableObject {
     /// Chaque passage de Homebrew est gardé dans homebrew.log (dossier de l'app), pour comprendre un échec après coup.
     nonisolated static func consigner(_ commande: String, _ code: Int32, _ sortie: String) {
         let f = Dossiers.support.appendingPathComponent("homebrew.log")
-        let propre = sortie.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[A-Za-z]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\r", with: "\n")
+        let propre = compresser(sortie.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[A-Za-z]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\r", with: "\n"))
         let bloc = "\n=== \(Date().formatted(.iso8601)) · \(commande) · code \(code)\n\(propre)\n"
         var ancien = (try? String(contentsOf: f, encoding: .utf8)) ?? ""
         if ancien.count > 400_000 { ancien = String(ancien.suffix(200_000)) }

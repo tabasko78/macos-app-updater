@@ -57,7 +57,10 @@ struct LigneApp: View {
                         Text(app.nom).font(T.police(compacte ? 12 : 13, .semibold)).foregroundStyle(T.texte).lineLimit(1)
                         if let d = details { Text("(\(d))").font(T.police(compacte ? 10 : 11)).foregroundStyle(T.tresDoux).fixedSize() }
                     }
-                    if !compacte, let r = app.incompatible ?? app.remarque {
+                    if !compacte, let e = m.echecs[app.id] {
+                        Text(L.t("Échec : ", "Failed: ") + e).font(T.police(10, .medium)).foregroundStyle(T.framboise).lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if !compacte, let r = app.incompatible ?? app.remarque {
                         Text(r).font(T.police(10)).foregroundStyle(T.tresDoux).lineLimit(1)
                     }
                     if !compacte, let r = m.resume(app) {
@@ -468,7 +471,7 @@ struct FenetreListe: View {
         if !m.sortieBrew.isEmpty {
             DisclosureGroup(isExpanded: $etat.sortieOuverte) {
                 ScrollView {
-                    Text(m.sortieBrew).font(.system(size: 11, design: .monospaced)).foregroundStyle(T.doux)
+                    Text(Moteur.compresser(m.sortieBrew)).font(.system(size: 11, design: .monospaced)).foregroundStyle(T.doux)
                         .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                 }
                 .frame(height: 140).padding(8).verre(8)

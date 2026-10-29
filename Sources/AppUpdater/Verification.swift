@@ -149,7 +149,13 @@ enum Verification {
         }
 
         // Sparkle d'abord pour savoir : c'est l'éditeur lui-même qui annonce sa version.
-        if let e = c.sparkle[a.chemin] {
+        // Un flux Sparkle plus ancien que l'app installée est un flux abandonné : CleanShot X 5 garde dans son
+        // Info.plist l'adresse du flux de la version 3 (3.7.1). Homebrew prend alors le relais, s'il connaît l'app.
+        let fluxPerime = c.sparkle[a.chemin].map { e in
+            let dispo = e.court ?? e.build ?? ""
+            return a.cask?.version != nil && !dispo.isEmpty && Versions.plusRecent(a.versionAffichee, que: dispo)
+        } ?? false
+        if let e = c.sparkle[a.chemin], !fluxPerime {
             a.source = .sparkle
             let dispo = e.court ?? e.build!
             a.disponible = dispo
