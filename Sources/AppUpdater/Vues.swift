@@ -27,7 +27,7 @@ struct LigneApp: View {
     private var largeurBouton: CGFloat { compacte ? 116 : 132 }
 
     /// L'app peut être cochée : une mise à jour proposée, qu'un bouton sait lancer.
-    private var cochable: Bool { !compacte && app.aJour == false && app.action != .aucune && !m.estIgnoree(app) && m.joursRestants(app) == nil }
+    private var cochable: Bool { !compacte && app.aJour == false && app.incompatible == nil && app.action != .aucune && !m.estIgnoree(app) && m.joursRestants(app) == nil }
 
     /// Taille sur le disque, collée au nom.
     private var details: String? { m.tailles[app.chemin].map(Desinstalleur.lisible) }
@@ -57,7 +57,7 @@ struct LigneApp: View {
                         Text(app.nom).font(T.police(compacte ? 12 : 13, .semibold)).foregroundStyle(T.texte).lineLimit(1)
                         if let d = details { Text("(\(d))").font(T.police(compacte ? 10 : 11)).foregroundStyle(T.tresDoux).fixedSize() }
                     }
-                    if !compacte, let r = app.remarque {
+                    if !compacte, let r = app.incompatible ?? app.remarque {
                         Text(r).font(T.police(10)).foregroundStyle(T.tresDoux).lineLimit(1)
                     }
                     if !compacte, let r = m.resume(app) {
@@ -86,7 +86,7 @@ struct LigneApp: View {
         .onTapGesture { if cochable { m.basculer(app) } }
         // Carte en cours de mise à jour : liseré de la couleur du thème, pour la distinguer des autres.
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(T.accent.opacity(m.progression[app.id] != nil ? 0.55 : 0), lineWidth: 1))
-        .opacity(m.estIgnoree(app) ? 0.55 : 1)
+        .opacity(m.estIgnoree(app) || app.incompatible != nil ? 0.55 : 1)
         .contextMenu { menu }
     }
 
@@ -129,7 +129,10 @@ struct LigneApp: View {
     }
 
     @ViewBuilder private var bouton: some View {
-        if app.aJour == false, let j = m.joursRestants(app) {
+        if app.aJour == false, app.incompatible != nil {
+            Image(systemName: "nosign").foregroundStyle(T.tresDoux)
+                .frame(width: largeurBouton, alignment: .trailing)
+        } else if app.aJour == false, let j = m.joursRestants(app) {
             Text(L.t("éprouvée dans \(j) j", "proven in \(j) d")).font(T.police(11)).foregroundStyle(T.tresDoux)
                 .help(L.t("Réglages > Délai avant de proposer une version", "Settings > Delay before offering a version"))
                 .frame(width: largeurBouton, alignment: .trailing)
@@ -361,7 +364,7 @@ struct FenetreListe: View {
 
     private func appsDuFiltre(_ f: Filtre) -> [AppInstallee] {
         switch f {
-        case .aMettreAJour: m.aMettreAJour + m.enAttente
+        case .aMettreAJour: m.aMettreAJour + m.enAttente + m.incompatibles
         case .toutes: m.apps
         case .sansSource: m.apps.filter { $0.source == .aucune && !m.estIgnoree($0) }
         case .ignorees: m.apps.filter { m.estIgnoree($0) }

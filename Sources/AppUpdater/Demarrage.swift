@@ -74,7 +74,7 @@ enum Demarrage {
             case .page: action = "page"
             case .aucune: action = ""
             }
-            let ligne = [etat, a.nom, a.versionAffichee + (a.build.isEmpty || a.build == a.version ? "" : " (\(a.build))"), a.disponible ?? "-", a.source.rawValue, action, a.remarque ?? ""]
+            let ligne = [etat, a.nom, a.versionAffichee + (a.build.isEmpty || a.build == a.version ? "" : " (\(a.build))"), a.disponible ?? "-", a.source.rawValue, action, a.incompatible ?? a.remarque ?? ""]
             print(ligne.joined(separator: " | "))
         }
     }

@@ -58,6 +58,31 @@ enum Verification {
         return (liste.map { resoudre($0, ctx) }, ctx, erreurs)
     }
 
+    /// La nouvelle version peut-elle tourner sur ce Mac ? Renvoie la raison si non (App Store et Homebrew publient
+    /// la version de macOS et le processeur demandés ; Sparkle est déjà filtré à la lecture du flux).
+    static func incompatibilite(_ a: AppInstallee, _ c: Contexte) -> String? {
+        var minOS: String?
+        var archs: [String]?
+        if a.source == .appStore, let f = c.mas[a.bundleId.lowercased()] {
+            if f.appIPhone && !CeMac.puceApple { return L.t("app iPhone : ne tourne que sur puce Apple", "iPhone app: runs on Apple silicon only") }
+            minOS = f.minOS
+        } else if case .brew = a.action, let k = a.cask {
+            minOS = k.minMacOS
+            archs = k.archs
+        }
+        if let archs, !archs.isEmpty {
+            let ici = CeMac.puceApple ? "arm" : "intel"
+            if !archs.contains(ici) {
+                return CeMac.puceApple ? L.t("nouvelle version réservée aux Mac Intel", "new version for Intel Macs only")
+                                       : L.t("nouvelle version réservée aux puces Apple", "new version for Apple silicon only")
+            }
+        }
+        if let m = minOS, Versions.plusRecent(m, que: CeMac.macOS) {
+            return L.t("nouvelle version incompatible : demande macOS \(m)", "new version not compatible: needs macOS \(m)")
+        }
+        return nil
+    }
+
     /// Homebrew installe sous le nom prévu par le cask : si l'app porte un autre nom (CleanMyMac_5.app
     /// contre CleanMyMac.app), il poserait une seconde copie à côté au lieu de remplacer la première.
     static func brewRemplace(_ a: AppInstallee, _ k: CaskInfo) -> Bool {
@@ -67,6 +92,7 @@ enum Verification {
 
     static func resoudre(_ app: AppInstallee, _ c: Contexte) -> AppInstallee {
         var a = resoudreBrut(app.brute, c)
+        if a.aJour == false { a.incompatible = incompatibilite(a, c) }
         // Classement choisi à la main, sinon déduit pour une app dont on ne connaît pas la version disponible.
         if let choix = c.classements[a.bundleId].flatMap(Classement.init(rawValue:)) {
             a.source = choix.source

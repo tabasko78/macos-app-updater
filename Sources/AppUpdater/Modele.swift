@@ -47,6 +47,29 @@ struct CaskInfo: Codable, Sendable {
     let terminal: Bool
     let autoUpdates: Bool
     var retire = false        // cask retiré de Homebrew : sa dernière version reste connue, il ne s'installe plus
+    var minMacOS: String? = nil   // version de macOS demandée par la dernière version (« 14 »)
+    var archs: [String]? = nil    // processeurs acceptés (« arm », « intel ») ; nil : tous
+}
+
+/// Le Mac sur lequel tourne l'app : version de macOS et processeur, pour écarter les versions incompatibles.
+enum CeMac {
+    static var macOS: String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
+    static var puceApple: Bool {
+        #if arch(arm64)
+        true
+        #else
+        false
+        #endif
+    }
+    /// Clé des variantes du catalogue Homebrew pour ce Mac : « ventura » (Intel), « arm64_sequoia »…
+    static var varianteHomebrew: String {
+        let noms = [11: "big_sur", 12: "monterey", 13: "ventura", 14: "sonoma", 15: "sequoia", 26: "tahoe", 27: "golden_gate"]
+        let nom = noms[ProcessInfo.processInfo.operatingSystemVersion.majorVersion] ?? "golden_gate"
+        return (puceApple ? "arm64_" : "") + nom
+    }
 }
 
 struct AppInstallee: Identifiable, Sendable {
@@ -70,6 +93,7 @@ struct AppInstallee: Identifiable, Sendable {
     var datePublication: Date? = nil       // quand la source la donne (App Store, GitHub, Sparkle)
     var notes: String? = nil               // notes de version, quand la source les donne
     var notesLien: URL? = nil              // ou l'adresse où les lire (Sparkle)
+    var incompatible: String? = nil        // la nouvelle version ne peut pas tourner sur ce Mac : pourquoi
 
     var versionAffichee: String { version.isEmpty ? build : version }
 

@@ -25,7 +25,7 @@ enum Homebrew {
         }
     }
 
-    static var fichierIndex: URL { Dossiers.caches.appendingPathComponent("index-brew.json") }
+    static var fichierIndex: URL { Dossiers.caches.appendingPathComponent("index-brew-v2.json") }   // v2 : exigences macOS et processeur
 
     /// L'index réduit (quelques Mo) est fabriqué par un second processus : analyser le catalogue
     /// complet (19 Mo de JSON) dans l'app gonflerait sa mémoire pour toute la durée de sa vie.
@@ -65,7 +65,14 @@ enum Homebrew {
             throw ErreurSource(L.t("catalogue Homebrew illisible", "Homebrew catalog unreadable"))
         }
         var idx = Index()
-        for c in casks {
+        let variante = CeMac.varianteHomebrew
+        for brut in casks {
+            // Les champs propres à ce Mac (version, adresse, exigences) remplacent ceux par défaut, faits pour
+            // la puce Apple sur le dernier macOS : un iMac Intel en Ventura a parfois une autre version.
+            var c = brut
+            if let v = (brut["variations"] as? [String: Any])?[variante] as? [String: Any] {
+                for (k, val) in v { c[k] = val }
+            }
             guard let token = c["token"] as? String else { continue }
             let retire = c["disabled"] as? Bool == true
             var version = c["version"] as? String
@@ -92,8 +99,13 @@ enum Homebrew {
                 }
             }
             let n = idx.casks.count
+            let dep = c["depends_on"] as? [String: Any]
+            let macos = dep?["macos"] as? [String: Any]
+            let minMacOS = ((macos?[">="] ?? macos?["=="]) as? [String])?.min { Versions.comparer($0, $1) == .orderedAscending }
+            let archs = (dep?["arch"] as? [[String: Any]])?.compactMap { $0["type"] as? String }
             idx.casks.append(CaskInfo(token: token, url: c["url"] as? String, version: version, apps: noms,
-                                      terminal: terminal, autoUpdates: c["auto_updates"] as? Bool ?? false, retire: retire))
+                                      terminal: terminal, autoUpdates: c["auto_updates"] as? Bool ?? false, retire: retire,
+                                      minMacOS: minMacOS, archs: archs))
             for x in noms { ranger(&idx.parNom, x.lowercased(), n, idx.casks) }
             for x in quits { ranger(&idx.parQuit, x.lowercased(), n, idx.casks) }
             for x in prefs { ranger(&idx.parPref, x.lowercased(), n, idx.casks) }
@@ -238,6 +250,8 @@ enum AppStore {
         let url: URL?
         var date: Date? = nil
         var notes: String? = nil
+        var minOS: String? = nil
+        var appIPhone = false     // app iPhone ou iPad : ne tourne que sur puce Apple
     }
 
     static func verifier(_ ids: [String]) async throws -> [String: Fiche] {
@@ -253,7 +267,9 @@ enum AppStore {
                     guard let b = r["bundleId"] as? String, let v = r["version"] as? String else { continue }
                     res[b.lowercased()] = Fiche(version: v, url: (r["trackViewUrl"] as? String).flatMap(URL.init(string:)),
                                                 date: (r["currentVersionReleaseDate"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) },
-                                                notes: r["releaseNotes"] as? String)
+                                                notes: r["releaseNotes"] as? String,
+                                                minOS: r["minimumOsVersion"] as? String,
+                                                appIPhone: (r["kind"] as? String) == "software")
                 }
             }
         }

@@ -115,10 +115,13 @@ final class Moteur: ObservableObject {
     }
 
     /// Les mises à jour proposées : disponibles, non ignorées, et « éprouvées » si un délai est réglé.
-    var aMettreAJour: [AppInstallee] { apps.filter { $0.aJour == false && !estIgnoree($0) && joursRestants($0) == nil } }
+    var aMettreAJour: [AppInstallee] { apps.filter { $0.aJour == false && $0.incompatible == nil && !estIgnoree($0) && joursRestants($0) == nil } }
+
+    /// Mises à jour qui ne peuvent pas tourner sur ce Mac : affichées grisées avec la raison, ni comptées ni proposées.
+    var incompatibles: [AppInstallee] { apps.filter { $0.aJour == false && $0.incompatible != nil && !estIgnoree($0) } }
 
     /// Les mises à jour trop récentes pour le délai choisi : affichées en attente, ni comptées ni proposées.
-    var enAttente: [AppInstallee] { apps.filter { $0.aJour == false && !estIgnoree($0) && joursRestants($0) != nil } }
+    var enAttente: [AppInstallee] { apps.filter { $0.aJour == false && $0.incompatible == nil && !estIgnoree($0) && joursRestants($0) != nil } }
 
     private func cle(_ a: AppInstallee) -> String { a.bundleId + "@" + (a.disponible ?? "") }
 
