@@ -617,7 +617,7 @@ struct ReglagesVue: View {
                             (h, h == 24 ? L.t("1 fois par jour", "once a day") : L.t("toutes les \(h) h", "every \(h) h"))
                         })
                     }
-                    ligne(L.t("Délai avant de proposer une version", "Delay before offering a version"), L.t("Laisse une nouvelle version faire ses preuves : elle n'apparaît qu'après ce nombre de jours, le temps que ses premiers bugs soient corrigés.", "Lets a new version prove itself: it only shows up after this many days, once its first bugs have been fixed.")) {
+                    ligne(L.t("Délai avant de proposer une version", "Delay before offering a version"), L.t("Préférer attendre quelques jours plutôt que d'installer immédiatement la mise à jour. Permet d'éviter d'éventuels bugs qui seraient rapidement corrigés.", "Better wait a few days than install the update right away. Avoids possible bugs that would quickly be fixed.")) {
                         Deroulant(valeur: $m.delai, options: [0, 1, 7, 15].map { j in (j, j == 0 ? L.t("Aucun", "None") : L.t("\(j) jours", "\(j) days")) })
                     }
                     ligne(L.t("Notifications", "Notifications"), L.t("Une notification macOS quand une nouvelle mise à jour apparaît.", "A macOS notification when a new update shows up.")) {
@@ -634,7 +634,7 @@ struct ReglagesVue: View {
             .frame(maxWidth: .infinity, alignment: .top)
             VStack(alignment: .leading, spacing: 14) {
                 rubrique(L.t("Mises à jour", "Updates")) {
-                    ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les mises à jour s'installent toutes seules. Seules attendent ton clic celles qui demanderaient de fermer une app ouverte, ton mot de passe, ou une nouvelle licence (version majeure).", "At every check, updates install by themselves. Only those that would need to quit an open app, your password, or a new license (major version) wait for your click.")) {
+                    ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les mises à jour s'installent toutes seules (sauf les applications qui exigent d'être fermées, qui nécessitent un mot de passe, ou les mises à jour majeures qui pourraient exiger une nouvelle licence).", "At every check, updates install by themselves (except apps that must be quit, that need a password, or major updates that could require a new license).")) {
                         Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
                     }
                     ligne(L.t("Fermer les apps sans demander", "Quit apps without asking"), L.t("Avant de mettre à jour une app ouverte, elle est fermée sans question (puis rouverte).", "Before updating an open app, it is quit without asking (then reopened).")) {
