@@ -8,7 +8,8 @@ struct ErreurSource: Error, LocalizedError {
 // MARK: - Homebrew : le catalogue public des casks, environ 7 000 applications
 
 enum Homebrew {
-    static let chemin = "/opt/homebrew/bin/brew"
+    /// /opt/homebrew sur puce Apple, /usr/local sur Intel.
+    static let chemin = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/opt/homebrew/bin/brew"
     static var present: Bool { FileManager.default.isExecutableFile(atPath: chemin) }
 
     struct Index: Codable, Sendable {

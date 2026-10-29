@@ -63,7 +63,7 @@ struct LigneApp: View {
                     if !compacte, let r = m.resume(app) {
                         let web = r.hasPrefix("web|")
                         (Text(web ? String(r.dropFirst(4)) : r)
-                            + Text(web ? L.t("  · d'après le web", "  · from the web") : "").foregroundStyle(T.tresDoux))
+                            + Text(web ? L.t("  · d'après le web", "  · from the web") : "").foregroundColor(T.tresDoux))
                             .font(T.police(11)).foregroundStyle(T.doux).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -301,7 +301,9 @@ struct FenetreListe: View {
             }
             return true
         }
-        .onChange(of: etat.onglet, initial: true) { _, o in m.journalOuvert = o == .journal }
+        // Formes compatibles macOS 13 (iMac 2017) : onAppear + onChange à un seul paramètre.
+        .onAppear { m.journalOuvert = etat.onglet == .journal }
+        .onChange(of: etat.onglet) { o in m.journalOuvert = o == .journal }
         .sheet(item: $m.aDesinstaller) { DesinstallationVue(app: $0).environmentObject(m) }
     }
 
@@ -666,7 +668,7 @@ struct ReglagesVue: View {
                                     .textFieldStyle(.plain).font(T.police(12)).foregroundStyle(T.texte)
                                     .padding(.horizontal, 10).padding(.vertical, 5).verre(8).frame(width: 170)
                                     // Un collage depuis le Terminal apporte un retour à la ligne : on le retire.
-                                    .onChange(of: etat.cleGemini) { _, v in
+                                    .onChange(of: etat.cleGemini) { v in
                                         let propre = v.filter { !$0.isWhitespace && !$0.isNewline }
                                         if propre != v { etat.cleGemini = propre }
                                         etat.verification = nil

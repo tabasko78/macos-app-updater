@@ -19,17 +19,24 @@ PERSO=""
 [[ $PUBLIC == 0 && -f perso/config.json ]] && PERSO=perso/config.json
 
 # SwiftPM's new build system fails with the Command Line Tools alone (no Xcode): use the native one.
-if ! swift build -c release --build-system native > .build-journal.txt 2>&1; then
-    grep -E "error:" .build-journal.txt | sort -u
-    echo "Build failed, details: $PWD/.build-journal.txt"
-    exit 1
-fi
+# Universal app: one build per processor (Apple silicon and Intel), joined with lipo. macOS only loads the part
+# for its own processor, so this costs about 1 MB on disk and nothing in memory.
+: > .build-journal.txt
+for arch in arm64 x86_64; do
+    if ! swift build -c release --build-system native --arch $arch >> .build-journal.txt 2>&1; then
+        grep -E "error:" .build-journal.txt | sort -u
+        echo "Build failed ($arch), details: $PWD/.build-journal.txt"
+        exit 1
+    fi
+done
+mkdir -p .build/universel
+lipo -create .build/arm64-apple-macosx/release/AppUpdater .build/x86_64-apple-macosx/release/AppUpdater -output .build/universel/AppUpdater
 
 # Icon drawn by the app itself, in the colours of the default theme (the Dock icon then follows the chosen theme).
 THEME="Graphite"
 [[ -n "$PERSO" ]] && THEME=$(plutil -extract theme raw "$PERSO" 2>/dev/null || echo Graphite)
 tmp=$(mktemp -d)
-.build/release/AppUpdater --icone "$THEME" "$tmp/icone.png"
+.build/universel/AppUpdater --icone "$THEME" "$tmp/icone.png"
 mkdir "$tmp/AppIcon.iconset"
 for t in 16 32 128 256 512; do
     sips -z $t $t "$tmp/icone.png" --out "$tmp/AppIcon.iconset/icon_${t}x${t}.png" >/dev/null
@@ -42,7 +49,7 @@ NOM=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" Ressources/Info.plist)
 APP="build/$NOM.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp .build/release/AppUpdater "$APP/Contents/MacOS/"
+cp .build/universel/AppUpdater "$APP/Contents/MacOS/"
 cp Ressources/Info.plist "$APP/Contents/"
 cp "$tmp/AppIcon.icns" "$APP/Contents/Resources/"
 rm -rf "$tmp"

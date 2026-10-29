@@ -527,7 +527,7 @@ final class Moteur: ObservableObject {
     }
 
     private func brew(_ a: AppInstallee, token: String) async {
-        guard Homebrew.present else { message = L.t("Homebrew est introuvable dans /opt/homebrew", "Homebrew was not found in /opt/homebrew"); return }
+        guard Homebrew.present else { message = L.t("Homebrew est introuvable (ni /opt/homebrew, ni /usr/local)", "Homebrew was not found (neither /opt/homebrew nor /usr/local)"); return }
         let id = a.id
         entrer(Self.fermeture, id)
         let suivi = suivre(id, url: a.cask?.url, homebrew: true)
@@ -748,7 +748,7 @@ final class Moteur: ObservableObject {
         #!/bin/zsh
         echo L.t("Mise à jour de \(a.nom) par Homebrew. Le mot de passe demandé est celui de ta session.", "Updating \(a.nom) with Homebrew. The password asked for is your login password.")
         echo
-        HOMEBREW_AUTO_UPDATE_SECS=300 /opt/homebrew/bin/brew install --cask --force \(token)
+        HOMEBREW_AUTO_UPDATE_SECS=300 \(Homebrew.chemin) install --cask --force \(token)
         echo
         echo L.t("Terminé, cette fenêtre peut être fermée. Relance la vérification dans Mises à jour.", "Done, you can close this window. Run the check again in the app.")
         """
