@@ -579,6 +579,7 @@ final class EtatReglages: ObservableObject {
     @Published var cleGemini = Resumeur.cle ?? ""
     @Published var verification: String?     // nil : rien à dire ; "" : clé valide ; sinon l'erreur
     @Published var enTest = false
+    @Published var modele = Resumeur.modele
 }
 
 struct ReglagesVue: View {
@@ -645,7 +646,7 @@ struct ReglagesVue: View {
                                 } else if let v = etat.verification {
                                     Image(systemName: v.isEmpty ? "checkmark.circle.fill" : "xmark.circle.fill")
                                         .foregroundStyle(v.isEmpty ? T.statut : T.framboise)
-                                        .help(v.isEmpty ? L.t("Clé valide, enregistrée", "Valid key, saved") : v)
+                                        .help(v.isEmpty ? L.t("Clé valide, enregistrée (modèle \(etat.modele))", "Valid key, saved (model \(etat.modele))") : v)
                                 }
                                 SecureField(L.t("Clé d'API", "API key"), text: $etat.cleGemini)
                                     .textFieldStyle(.plain).font(T.police(12)).foregroundStyle(T.texte)
@@ -685,12 +686,16 @@ struct ReglagesVue: View {
         let cle = etat.cleGemini
         etat.enTest = true
         Task {
-            let erreur = await Resumeur.tester(cle)
-            etat.enTest = false
-            etat.verification = erreur ?? ""
-            if erreur == nil {
+            switch await Resumeur.tester(cle) {
+            case .success(let modele):
+                etat.enTest = false
+                etat.verification = ""
+                etat.modele = modele
                 Resumeur.cle = cle
                 await m.resumer()
+            case .failure(let e):
+                etat.enTest = false
+                etat.verification = e.localizedDescription
             }
         }
     }

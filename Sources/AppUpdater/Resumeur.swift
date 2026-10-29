@@ -56,16 +56,34 @@ enum Resumeur {
         return try await appeler(consigne + "\n\n" + notes, cle: cle)
     }
 
-    /// Gemini 2.5 Flash n'est plus ouvert aux nouvelles clés (octobre 2026) : 3.8 Flash.
-    static let modele = "gemini-3.8-flash"
-
-    /// Petit appel pour vérifier une clé avant de l'enregistrer ; renvoie le message d'erreur, ou nil si elle marche.
-    static func tester(_ cle: String) async -> String? {
-        do { _ = try await appeler("Reply with the single word: ok", cle: cle); return nil } catch { return error.localizedDescription }
+    /// Modèles essayés dans l'ordre. Gemini 2.5 Flash est fermé aux nouvelles clés (octobre 2026), et
+    /// 3.8 Flash n'a pas répondu en 60 s avec la clé gratuite (29/10/2026) : le premier qui répond est retenu.
+    static let modeles = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest", "gemini-3.5-flash-lite"]
+    static var modele: String {
+        get { UserDefaults.standard.string(forKey: "modeleGemini") ?? modeles[0] }
+        set { UserDefaults.standard.set(newValue, forKey: "modeleGemini") }
     }
 
-    private static func appeler(_ texte: String, cle: String) async throws -> String {
-        var req = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(modele):generateContent")!, timeoutInterval: 40)
+    /// Vérifie la clé avant de l'enregistrer : essaie les modèles (20 s chacun) et retient le premier qui répond.
+    /// Renvoie le modèle retenu, ou l'erreur du dernier essai.
+    static func tester(_ cle: String) async -> Result<String, Error> {
+        var derniere: Error = ErreurSource(L.t("aucun modèle n'a répondu", "no model answered"))
+        for m in modeles {
+            do {
+                _ = try await appeler("Reply with the single word: ok", cle: cle, modele: m, delai: 20)
+                modele = m
+                return .success(m)
+            } catch {
+                derniere = error
+                // Clé refusée : inutile d'essayer les autres modèles.
+                if error.localizedDescription.localizedCaseInsensitiveContains("API key") { break }
+            }
+        }
+        return .failure(derniere)
+    }
+
+    private static func appeler(_ texte: String, cle: String, modele m: String? = nil, delai: TimeInterval = 60) async throws -> String {
+        var req = URLRequest(url: URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(m ?? modele):generateContent")!, timeoutInterval: delai)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(cle, forHTTPHeaderField: "x-goog-api-key")
