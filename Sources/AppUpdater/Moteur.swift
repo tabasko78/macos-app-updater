@@ -570,6 +570,14 @@ final class Moteur: ObservableObject {
                 MotDePasse.partage.oublier()
             }
             message = L.t("Échec de la mise à jour de \(a.nom), le détail est dans la sortie Homebrew", "Updating \(a.nom) failed, see the Homebrew output")
+            // Homebrew vieillissant ou installé par un autre compte du Mac (iMac de 2017, 29/10/2026).
+            if r.sortie.contains("shallow clone") {
+                message = L.t("Le Homebrew de ce Mac ne peut plus se mettre à jour : lance « brew untap homebrew/core » puis « brew update » dans le Terminal.",
+                              "This Mac's Homebrew can no longer update: run “brew untap homebrew/core” then “brew update” in Terminal.")
+            } else if r.sortie.contains("Permission denied") {
+                message = L.t("Homebrew appartient à un autre compte de ce Mac : il faut lui rendre la main (« sudo chown -R $(whoami) $(brew --prefix)/* » dans le Terminal).",
+                              "Homebrew belongs to another account on this Mac: take it back (“sudo chown -R $(whoami) $(brew --prefix)/*” in Terminal).")
+            }
             // macOS interdit de modifier une app sans l'autorisation « Gestion des apps » (Chrome, 29/10/2026).
             if r.sortie.contains("Operation not permitted") {
                 message = L.t("macOS a bloqué le remplacement de \(a.nom) : coche « macOS App Updater » dans Réglages Système > Confidentialité et sécurité > Gestion des apps, puis recommence.",
