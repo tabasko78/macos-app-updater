@@ -60,12 +60,11 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     /// Réglages > Afficher l'app dans : l'icône de la barre des menus, celle du Dock, ou les deux.
-    /// En « Barre des menus » seule, l'app ne passe dans le Dock que le temps que la fenêtre est ouverte.
+    /// En « Barre des menus » seule, jamais d'icône dans le Dock, même fenêtre ouverte.
     private func appliquerAffichage() {
         let a = moteur.affichage
         icone.isVisible = a.menu
-        let fenetreOuverte = fenetre?.isVisible ?? false
-        NSApp.setActivationPolicy(a.dock || fenetreOuverte ? .regular : .accessory)
+        NSApp.setActivationPolicy(a.dock ? .regular : .accessory)
         majIcone()
     }
 
@@ -106,8 +105,8 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
             f.setFrameAutosaveName("FenetrePrincipale")
             fenetre = f
         }
-        // Le temps que la fenêtre est ouverte, l'app devient ordinaire (Dock, Cmd-Tab) et reste devant quand on s'en sert.
-        NSApp.setActivationPolicy(.regular)
+        // Icône dans le Dock seulement si le réglage le demande ; la fenêtre passe devant dans tous les cas.
+        if moteur.affichage.dock { NSApp.setActivationPolicy(.regular) }
         fenetre?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         ajusterHauteur(moteur.hauteurFenetre)   // la hauteur a pu être mesurée avant que la fenêtre existe
