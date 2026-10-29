@@ -405,7 +405,7 @@ struct FenetreListe: View {
             Spacer(minLength: 12)
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(T.tresDoux)
-                TextField(L.t("Rechercher", "Search"), text: $etat.recherche).textFieldStyle(.plain).font(T.police(12)).foregroundStyle(T.texte)
+                ChampRecherche(texte: $etat.recherche, invite: L.t("Rechercher", "Search"))
             }
             .padding(.horizontal, 10).padding(.vertical, 6).verre(14)
             .frame(minWidth: 130, maxWidth: 220)
@@ -1076,5 +1076,68 @@ struct PileAvis: View {
             }
         }
         .padding(.horizontal, compacte ? 0 : 4)
+    }
+}
+
+// MARK: - Champ de recherche : ne prend la main qu'au clic, curseur gris
+
+/// macOS donne le clavier au premier champ de la fenêtre dès qu'elle s'affiche ou se redessine : le curseur
+/// clignotait sans qu'on ait cliqué. Ce champ refuse le clavier tant qu'on ne clique pas dedans, et le rend en
+/// fin de saisie. Son curseur est gris ; le texte tapé garde sa couleur.
+final class ChampSansFocusAuto: NSTextField {
+    var autorise = false
+    override var acceptsFirstResponder: Bool { autorise && super.acceptsFirstResponder }
+
+    override func mouseDown(with event: NSEvent) {
+        autorise = true
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok, let editeur = currentEditor() as? NSTextView {
+            editeur.insertionPointColor = NSColor(white: 0.62, alpha: 1)
+        }
+        return ok
+    }
+
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        autorise = false
+    }
+}
+
+struct ChampRecherche: NSViewRepresentable {
+    @Binding var texte: String
+    let invite: String
+
+    func makeNSView(context: Context) -> ChampSansFocusAuto {
+        let c = ChampSansFocusAuto()
+        c.isBordered = false
+        c.drawsBackground = false
+        c.focusRingType = .none
+        c.font = NSFont(name: "Montserrat", size: 12) ?? .systemFont(ofSize: 12)
+        c.delegate = context.coordinator
+        c.lineBreakMode = .byTruncatingTail
+        c.cell?.isScrollable = true
+        return c
+    }
+
+    func updateNSView(_ c: ChampSansFocusAuto, context: Context) {
+        if c.stringValue != texte { c.stringValue = texte }
+        c.textColor = NSColor(T.texte)
+        c.placeholderAttributedString = NSAttributedString(string: invite, attributes: [
+            .foregroundColor: NSColor(T.tresDoux), .font: c.font ?? NSFont.systemFont(ofSize: 12)])
+    }
+
+    func makeCoordinator() -> Coordinateur { Coordinateur(texte: $texte) }
+
+    final class Coordinateur: NSObject, NSTextFieldDelegate {
+        var texte: Binding<String>
+        init(texte: Binding<String>) { self.texte = texte }
+        func controlTextDidChange(_ n: Notification) {
+            if let c = n.object as? NSTextField { texte.wrappedValue = c.stringValue }
+        }
     }
 }
