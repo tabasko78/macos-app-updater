@@ -25,17 +25,17 @@ if ! swift build -c release --build-system native > .build-journal.txt 2>&1; the
     exit 1
 fi
 
-if [[ ! -f Ressources/AppIcon.icns ]]; then
-    tmp=$(mktemp -d)
-    swift outils/icone.swift "$tmp/icone.png"
-    mkdir "$tmp/AppIcon.iconset"
-    for t in 16 32 128 256 512; do
-        sips -z $t $t "$tmp/icone.png" --out "$tmp/AppIcon.iconset/icon_${t}x${t}.png" >/dev/null
-        sips -z $((t*2)) $((t*2)) "$tmp/icone.png" --out "$tmp/AppIcon.iconset/icon_${t}x${t}@2x.png" >/dev/null
-    done
-    iconutil -c icns "$tmp/AppIcon.iconset" -o Ressources/AppIcon.icns
-    rm -rf "$tmp"
-fi
+# Icon drawn by the app itself, in the colours of the default theme (the Dock icon then follows the chosen theme).
+THEME="Graphite"
+[[ -n "$PERSO" ]] && THEME=$(plutil -extract theme raw "$PERSO" 2>/dev/null || echo Graphite)
+tmp=$(mktemp -d)
+.build/release/AppUpdater --icone "$THEME" "$tmp/icone.png"
+mkdir "$tmp/AppIcon.iconset"
+for t in 16 32 128 256 512; do
+    sips -z $t $t "$tmp/icone.png" --out "$tmp/AppIcon.iconset/icon_${t}x${t}.png" >/dev/null
+    sips -z $((t*2)) $((t*2)) "$tmp/icone.png" --out "$tmp/AppIcon.iconset/icon_${t}x${t}@2x.png" >/dev/null
+done
+iconutil -c icns "$tmp/AppIcon.iconset" -o "$tmp/AppIcon.icns"
 
 NOM=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" Ressources/Info.plist)
 [[ -n "$PERSO" ]] && NOM=$(plutil -extract nom raw "$PERSO")
@@ -44,7 +44,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/AppUpdater "$APP/Contents/MacOS/"
 cp Ressources/Info.plist "$APP/Contents/"
-cp Ressources/AppIcon.icns "$APP/Contents/Resources/"
+cp "$tmp/AppIcon.icns" "$APP/Contents/Resources/"
+rm -rf "$tmp"
 if [[ -n "$PERSO" ]]; then
     # Personal copy: its own identifier and name (so its settings are kept), and its defaults (theme, language…).
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $(plutil -extract bundleId raw "$PERSO")" "$APP/Contents/Info.plist"

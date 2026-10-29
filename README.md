@@ -2,6 +2,8 @@
 
 A small menu bar app that checks every app in `/Applications` for updates and installs them, a free alternative to MacUpdater. The interface is in English or French, following your system language (it can be changed in Settings).
 
+![macOS App Updater](docs/screenshot.jpg)
+
 ## What it does
 
 - **Finds the latest version of each app** from several sources:
@@ -18,7 +20,8 @@ A small menu bar app that checks every app in `/Applications` for updates and in
 - **Explains apps it cannot track**: component of another app, self-updating, discontinued…
 - **Uninstalls like AppCleaner**: the app and its leftovers in `~/Library`, all moved to the Trash. Drop an app on the window, or right-click it.
 - **Log** of every update, install and uninstall, including those made outside the app.
-- Three dark themes: Graphite (default), Midnight blue, Violet.
+- Three dark themes: Graphite (default), Midnight blue, Violet; the app icon follows the chosen theme.
+- Shows in the menu bar, the Dock, or both.
 
 ## Install
 

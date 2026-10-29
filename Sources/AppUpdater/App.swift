@@ -21,6 +21,7 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var fenetre: NSWindow?
     private var abonnement: AnyCancellable?
     private var abonnementHauteur: AnyCancellable?
+    private var abonnementTheme: AnyCancellable?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         moteur.montrerFenetre = { [weak self] in self?.montrerFenetre() }
@@ -42,6 +43,8 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         majIcone()
         appliquerAffichage()
+        // L'icône du Dock (et des fenêtres d'alerte) prend les couleurs du thème choisi.
+        abonnementTheme = moteur.$theme.removeDuplicates().sink { t in NSApp.applicationIconImage = Icone.image(t) }
         // La fenêtre suit la hauteur de son contenu (au plus 30 lignes, puis la liste défile).
         abonnementHauteur = moteur.$hauteurFenetre
             .removeDuplicates()

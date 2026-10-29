@@ -43,6 +43,12 @@ enum Demarrage {
             }
             dispatchMain()
         }
+        // « AppUpdater --icone <thème> <fichier.png> » : l'icône 1024 px aux couleurs d'un thème (pour le .icns).
+        if let i = CommandLine.arguments.firstIndex(of: "--icone"), i + 2 < CommandLine.arguments.count {
+            let theme = ThemeNom(rawValue: CommandLine.arguments[i + 1]) ?? .graphite
+            guard let d = Icone.png(theme), (try? d.write(to: URL(fileURLWithPath: CommandLine.arguments[i + 2]))) != nil else { exit(1) }
+            return
+        }
         // « AppUpdater --index-brew <fichier> » : second processus qui fabrique l'index Homebrew réduit.
         if let i = CommandLine.arguments.firstIndex(of: "--index-brew"), i + 1 < CommandLine.arguments.count {
             let chemin = CommandLine.arguments[i + 1]
