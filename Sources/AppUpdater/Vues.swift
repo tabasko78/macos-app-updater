@@ -514,6 +514,11 @@ struct ReglagesVue: View {
                         }
                     }
                 }
+                carte(L.t("Fermer les apps sans demander", "Quit apps without asking"), L.t("Avant de mettre à jour une app ouverte, elle est fermée sans question (puis rouverte).", "Before updating an open app, it is quit without asking (then reopened).")) {
+                    Toggle("", isOn: Binding(get: { UserDefaults.standard.bool(forKey: "fermerSansDemander") },
+                                             set: { UserDefaults.standard.set($0, forKey: "fermerSansDemander"); m.objectWillChange.send() }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
                 carte(L.t("Notifications", "Notifications"), L.t("Une notification macOS quand une nouvelle mise à jour apparaît.", "A macOS notification when a new update shows up.")) {
                     Toggle("", isOn: $m.notifications).toggleStyle(.switch).labelsHidden()
                 }

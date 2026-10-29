@@ -291,16 +291,60 @@ final class Moteur: ObservableObject {
         lot = nil
     }
 
-    /// Ferme l'app si elle tourne. Renvoie nil si elle n'a pas voulu se fermer, sinon si elle tournait.
-    private func fermer(_ a: AppInstallee) async -> Bool? {
+    /// Ferme l'app si elle tourne, après l'avoir proposé (sauf « Ne plus demander »). Si elle refuse de se fermer
+    /// (Chrome, Firefox… qui attendent une confirmation), propose de forcer la fermeture.
+    /// Renvoie nil si elle n'est pas fermée (refus ou annulation), sinon si elle tournait.
+    private func fermer(_ a: AppInstallee, pour geste: String? = nil) async -> Bool? {
         let ouvertes = NSRunningApplication.runningApplications(withBundleIdentifier: a.bundleId)
             .filter { $0.bundleURL?.path == a.chemin }
         guard !ouvertes.isEmpty else { return false }
-        ouvertes.forEach { $0.terminate() }
-        for _ in 0..<30 where ouvertes.contains(where: { !$0.isTerminated }) {
-            try? await Task.sleep(for: .milliseconds(500))
+        let pourquoi = geste ?? L.t("Pour la mettre à jour, il faut la fermer. Elle sera rouverte ensuite.",
+                                    "It has to quit to be updated. It will be reopened afterwards.")
+        if !reglages.bool(forKey: "fermerSansDemander") {
+            let r = demander(L.t("\(a.nom) est ouverte", "\(a.nom) is open"), pourquoi,
+                             [L.t("Fermer et continuer", "Quit and continue"), L.t("Annuler", "Cancel")],
+                             caseACocher: L.t("Fermer les apps sans demander", "Quit apps without asking"))
+            if r.coche { reglages.set(true, forKey: "fermerSansDemander") }
+            guard r.bouton == 0 else { message = L.t("\(a.nom) : annulé", "\(a.nom): cancelled"); return nil }
         }
-        return ouvertes.contains(where: { !$0.isTerminated }) ? nil : true
+        ouvertes.forEach { $0.terminate() }
+        while true {
+            for _ in 0..<24 where ouvertes.contains(where: { !$0.isTerminated }) {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            if !ouvertes.contains(where: { !$0.isTerminated }) { return true }
+            let r = demander(L.t("\(a.nom) ne se ferme pas", "\(a.nom) does not quit"),
+                             L.t("Elle attend peut-être une confirmation (onglets ouverts, document non enregistré) : regarde ses fenêtres. Tu peux aussi forcer la fermeture, ce qui n'est pas enregistré sera perdu.",
+                                 "It may be waiting for a confirmation (open tabs, unsaved document): check its windows. You can also force it to quit; anything unsaved will be lost."),
+                             [L.t("Attendre encore", "Wait more"), L.t("Forcer la fermeture", "Force quit"), L.t("Annuler", "Cancel")])
+            switch r.bouton {
+            case 0: continue
+            case 1:
+                ouvertes.forEach { _ = $0.forceTerminate() }
+                for _ in 0..<10 where ouvertes.contains(where: { !$0.isTerminated }) { try? await Task.sleep(for: .milliseconds(500)) }
+                if !ouvertes.contains(where: { !$0.isTerminated }) { return true }
+                message = L.t("\(a.nom) ne s'est pas fermée, ferme-la puis recommence", "\(a.nom) did not quit; quit it and try again")
+                return nil
+            default:
+                message = L.t("\(a.nom) : annulé", "\(a.nom): cancelled")
+                return nil
+            }
+        }
+    }
+
+    /// Fenêtre de question au premier plan ; renvoie le bouton choisi (0 = le premier) et la case.
+    private func demander(_ titre: String, _ texte: String, _ boutons: [String], caseACocher: String? = nil) -> (bouton: Int, coche: Bool) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alerte = NSAlert()
+        alerte.messageText = titre
+        alerte.informativeText = texte
+        boutons.forEach { alerte.addButton(withTitle: $0) }
+        if let caseACocher {
+            alerte.showsSuppressionButton = true
+            alerte.suppressionButton?.title = caseACocher
+        }
+        let r = alerte.runModal()
+        return (r.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue, alerte.suppressionButton?.state == .on)
     }
 
     /// Une étape de la mise à jour : la barre avance d'elle-même de `debut` vers `fin` (sans jamais l'atteindre)
@@ -331,10 +375,7 @@ final class Moteur: ObservableObject {
         let suivi = suivre(id, url: a.cask?.url, homebrew: true)
         defer { suivi.cancel(); progression[id] = nil; etape[id] = nil; phases[id] = nil }
 
-        guard let tournait = await fermer(a) else {
-            message = L.t("\(a.nom) ne s'est pas fermée, ferme-la puis recommence", "\(a.nom) did not quit; quit it and try again")
-            return
-        }
+        guard let tournait = await fermer(a) else { return }
         entrer(Self.preparation, id)
 
         let args = contexte.casksInstalles.contains(token)
@@ -396,7 +437,7 @@ final class Moteur: ObservableObject {
             try await Installeur.controler(nouvelle, contre: a)
             sortieBrew += L.t("signature contrôlée", "signature checked") + "\n"
             entrer(Self.installationPhase, id)
-            guard let tournait = await fermer(a) else { throw ErreurSource(L.t("\(a.nom) ne s'est pas fermée, ferme-la puis recommence", "\(a.nom) did not quit; quit it and try again")) }
+            guard let tournait = await fermer(a) else { throw ErreurSource(message ?? L.t("annulé", "cancelled")) }
             try await Installeur.remplacer(a.chemin, par: nouvelle)
             progression[id] = 1
             etape[id] = L.t("Terminé", "Done")
@@ -557,7 +598,9 @@ final class Moteur: ObservableObject {
 
     /// Renvoie un message d'erreur, ou nil si tout est parti à la Corbeille.
     func desinstaller(_ a: AppInstallee, _ chemins: [String]) async -> String? {
-        guard await fermer(a) != nil else { return L.t("\(a.nom) ne s'est pas fermée, ferme-la puis recommence", "\(a.nom) did not quit; quit it and try again") }
+        guard await fermer(a, pour: L.t("Pour la désinstaller, il faut la fermer.", "It has to quit to be uninstalled.")) != nil else {
+            return message ?? L.t("\(a.nom) n'est pas fermée", "\(a.nom) is still open")
+        }
         let presente = FileManager.default.fileExists(atPath: a.chemin)   // un second clic ne note pas deux fois
         let echecs = await Desinstalleur.mettreALaCorbeille(chemins)
         if presente && !FileManager.default.fileExists(atPath: a.chemin) {
