@@ -1,0 +1,734 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+// Les outils en ligne de commande (sans Xcode) n'ont pas le greffon de la macro @State :
+// l'état local des vues passe par de petits objets observés.
+
+// MARK: - Icônes, mises en cache : NSWorkspace est lent
+
+@MainActor
+enum Icones {
+    private static var cache: [String: NSImage] = [:]
+    static func icone(_ chemin: String) -> NSImage {
+        if let i = cache[chemin] { return i }
+        let i = NSWorkspace.shared.icon(forFile: chemin)
+        cache[chemin] = i
+        return i
+    }
+}
+
+// MARK: - Une ligne d'application : clic gauche ouvre l'app, clic droit le menu
+
+struct LigneApp: View {
+    @EnvironmentObject var m: Moteur
+    let app: AppInstallee
+    var compacte = false
+
+    private var largeurBouton: CGFloat { compacte ? 116 : 132 }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                if !compacte {
+                    if app.aJour == false && app.action != .aucune && !m.estIgnoree(app) {
+                        CaseACocher(cochee: m.selection.contains(app.id)) { m.basculer(app) }
+                    } else {
+                        Color.clear.frame(width: 18, height: 18)
+                    }
+                }
+                Image(nsImage: Icones.icone(app.chemin)).resizable().frame(width: compacte ? 24 : 30, height: compacte ? 24 : 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(app.nom).font(T.police(compacte ? 12 : 13, .semibold)).foregroundStyle(T.texte).lineLimit(1)
+                        if let t = m.tailles[app.chemin] {
+                            Text("(\(Desinstalleur.lisible(t)))").font(T.police(compacte ? 10 : 11)).foregroundStyle(T.tresDoux).fixedSize()
+                        }
+                    }
+                    if !compacte, let r = app.remarque {
+                        Text(r).font(T.police(10)).foregroundStyle(T.tresDoux).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                versions
+                if !compacte { pastille }
+                bouton
+            }
+            if let p = m.progression[app.id] { barre(p) }
+        }
+        .padding(.horizontal, 10).padding(.vertical, compacte ? 5 : 7)
+        .padding(.bottom, m.progression[app.id] != nil ? 4 : 0)
+        .verre(10)
+        // Carte en cours de mise à jour : liseré de la couleur du thème, pour la distinguer des autres.
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(T.accent.opacity(m.progression[app.id] != nil ? 0.55 : 0), lineWidth: 1))
+        .opacity(m.estIgnoree(app) ? 0.55 : 1)
+        .contextMenu { menu }
+    }
+
+    /// Bloc de progression posé dans un encart de la carte, pour qu'il ne se confonde pas avec l'espace entre deux cartes.
+    private func barre(_ p: Double) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(m.etape[app.id] ?? "").font(T.police(11, .medium)).foregroundStyle(T.texte.opacity(0.85)).lineLimit(1)
+                Spacer()
+                Text("\(Int(min(1, max(0, p)) * 100)) %").font(T.police(11, .semibold)).foregroundStyle(T.texte).monospacedDigit()
+            }
+            BarreProgression(valeur: p)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(T.accent.opacity(0.22), lineWidth: 1))
+        .padding(.leading, compacte ? 0 : 28)   // aligné sous l'icône, pas sous la case à cocher
+    }
+
+    private var versions: some View {
+        HStack(spacing: 4) {
+            Text(app.versionAffichee).foregroundStyle(T.doux)
+            if app.aJour == false, let d = app.disponible {
+                Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(T.tresDoux)
+                Text(d).foregroundStyle(T.cyan)
+            }
+        }
+        .font(T.police(compacte ? 11 : 12, .medium))
+        .lineLimit(1)
+    }
+
+    private var pastille: some View {
+        Text(app.source.libelle)
+            .font(T.police(10, .semibold))
+            .foregroundStyle(T.couleur(app.source))
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(T.couleur(app.source).opacity(0.12), in: Capsule())
+            .frame(width: 104, alignment: .trailing)
+    }
+
+    @ViewBuilder private var bouton: some View {
+        if m.progression[app.id] != nil {
+            Text(L.t("en cours", "updating")).font(T.police(11)).foregroundStyle(T.doux).frame(width: largeurBouton, alignment: .trailing)
+        } else if app.aJour == false, app.action != .aucune {
+            Button(libelle) { Task { await m.mettreAJour(app) } }
+                .buttonStyle(BoutonPlein(teinte: Boutons.teinte(app.action)))
+                .help(aide)
+                .frame(width: largeurBouton, alignment: .trailing)
+        } else if app.aJour == true {
+            Image(systemName: "checkmark").foregroundStyle(T.accent.opacity(0.7)).frame(width: largeurBouton, alignment: .trailing)
+        } else {
+            Text("–").foregroundStyle(T.tresDoux).frame(width: largeurBouton, alignment: .trailing)
+        }
+    }
+
+    private var libelle: String {
+        switch app.action {
+        case .brew(_, let terminal): terminal ? L.t("Installer…", "Install…") : L.t("Mettre à jour", "Update")
+        case .installer: L.t("Mettre à jour", "Update")
+        case .appStore: "App Store"
+        case .telecharger: L.t("Télécharger", "Download")
+        case .ouvrirApp: L.t("Ouvrir", "Open")
+        case .page: L.t("Voir la page", "View page")
+        case .aucune: ""
+        }
+    }
+
+    private var aide: String {
+        switch app.action {
+        case .brew(let t, let terminal):
+            terminal ? L.t("Ouvre le Terminal : ce paquet demande le mot de passe de ta session (brew \(t))", "Opens Terminal: this package asks for your login password (brew \(t))")
+                     : L.t("Installe la nouvelle version par Homebrew (brew \(t)), l'app est fermée puis rouverte", "Installs the new version with Homebrew (brew \(t)); the app is quit and reopened")
+        case .installer(let u, let sha):
+            L.t("Télécharge \(u.lastPathComponent)\(sha != nil ? ", vérifie son empreinte" : ""), contrôle la signature de l'éditeur, puis remplace l'app (l'ancienne part à la Corbeille)", "Downloads \(u.lastPathComponent)\(sha != nil ? ", checks its hash" : ""), checks the developer signature, then replaces the app (the old one goes to the Trash)")
+        case .appStore: L.t("Ouvre la fiche dans l'App Store", "Opens the App Store page")
+        case .telecharger: L.t("Télécharge la nouvelle version annoncée par l'éditeur", "Downloads the new version announced by the developer")
+        case .ouvrirApp: L.t("Ouvre l'app, qui proposera sa mise à jour", "Opens the app, which will offer its own update")
+        case .page: L.t("Ouvre la page de l'éditeur", "Opens the developer's page")
+        case .aucune: ""
+        }
+    }
+
+    @ViewBuilder private var menu: some View {
+        if app.aJour == false, app.disponible != nil, !m.estIgnoree(app) {
+            Button(L.t("Ignorer la version \(app.disponible!)", "Ignore version \(app.disponible!)")) { m.ignorer(app) }
+        }
+        if m.estIgnoree(app) {
+            Button(L.t("Suivre à nouveau", "Track again")) { m.neplusIgnorer(app) }
+        } else {
+            Button(L.t("Ne plus suivre cette app", "Stop tracking this app")) { m.nePlusSuivre(app) }
+        }
+        Divider()
+        Button(L.t("Ouvrir", "Open")) { m.ouvrir(app) }
+        Button(L.t("Afficher dans le Finder", "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: app.chemin)]) }
+        if let k = app.cask {
+            Button(L.t("Copier « brew \(k.token) »", "Copy “brew \(k.token)”")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("brew install --cask --force \(k.token)", forType: .string)
+            }
+        }
+        Menu(L.t("Classer comme", "Classify as")) {
+            ForEach(Classement.allCases) { c in
+                Button(c.libelle + " : " + c.explication) { m.classer(app, c) }
+            }
+            Divider()
+            Button(L.t("Automatique", "Automatic")) { m.classer(app, nil) }
+        }
+        Divider()
+        Button(L.t("Désinstaller…", "Uninstall…")) {
+            m.aDesinstaller = app
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+}
+
+// MARK: - Fenêtre principale
+
+enum Onglet: String, CaseIterable, Identifiable {
+    case applications = "Applications"
+    case journal = "Journal"
+    case reglages = "Réglages"
+    var id: String { rawValue }
+    var libelle: String {
+        switch self {
+        case .applications: L.t("Applications", "Apps")
+        case .journal: L.t("Journal", "Log")
+        case .reglages: L.t("Réglages", "Settings")
+        }
+    }
+}
+
+enum Filtre: String, CaseIterable, Identifiable {
+    case aMettreAJour = "À mettre à jour"
+    case toutes = "Toutes"
+    case sansSource = "Sans source"
+    case ignorees = "Ignorées"
+    var id: String { rawValue }
+    var libelle: String {
+        switch self {
+        case .aMettreAJour: L.t("À mettre à jour", "To update")
+        case .toutes: L.t("Toutes", "All")
+        case .sansSource: L.t("Sans source", "No source")
+        case .ignorees: L.t("Ignorées", "Ignored")
+        }
+    }
+}
+
+final class EtatFenetre: ObservableObject {
+    @Published var onglet: Onglet = .applications
+    @Published var filtre: Filtre = .aMettreAJour
+    @Published var recherche = ""
+    @Published var sortieOuverte = false
+    @Published var survolDepot = false
+    @Published var triTaille = false
+    @Published var source: Source? = nil   // nil : toutes les sources
+}
+
+struct FenetreListe: View {
+    @EnvironmentObject var m: Moteur
+    @StateObject private var etat = EtatFenetre()
+
+    var body: some View {
+        ZStack {
+            FondTheme()
+            VStack(alignment: .leading, spacing: 14) {
+                entete.padding(.bottom, 15)
+                switch etat.onglet {
+                case .applications: applications
+                case .journal: JournalVue()
+                case .reglages: ReglagesVue()
+                }
+            }
+            .padding([.horizontal, .bottom], 20)
+            .padding(.top, 2)   // la barre de titre transparente laisse déjà sa hauteur au-dessus
+            // Hauteur naturelle du contenu : le Delegue y ajuste la fenêtre.
+            .background(GeometryReader { g in Color.clear.preference(key: HauteurCle.self, value: g.size.height) })
+            .onPreferenceChange(HauteurCle.self) { h in m.hauteurFenetre = h }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            if etat.survolDepot {
+                RoundedRectangle(cornerRadius: 16).stroke(T.rose, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                    .padding(8)
+                    .overlay(Text(L.t("Dépose une app ici pour la désinstaller", "Drop an app here to uninstall it")).font(T.police(16, .semibold)).foregroundStyle(T.rose))
+            }
+        }
+        .frame(minWidth: 820, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .preferredColorScheme(.dark)
+        .id("\(m.theme.rawValue)-\(m.langue.rawValue)")
+
+        // Glisser une app sur la fenêtre la propose à la désinstallation, comme AppCleaner.
+        .onDrop(of: [.fileURL], isTargeted: $etat.survolDepot) { fournisseurs in
+            guard let f = fournisseurs.first else { return false }
+            _ = f.loadObject(ofClass: URL.self) { url, _ in
+                guard let url, url.pathExtension == "app" else { return }
+                Task { @MainActor in m.preparerDesinstallation(chemin: url.path) }
+            }
+            return true
+        }
+        .sheet(item: $m.aDesinstaller) { DesinstallationVue(app: $0).environmentObject(m) }
+    }
+
+    private var entete: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(L.t("Mises à jour", "App Updater"))
+                .font(T.police(24, .bold))
+                // Graphite : titre uni, sans dégradé ni couleur.
+                .foregroundStyle(T.nom == .graphite
+                                 ? AnyShapeStyle(T.texte)
+                                 : AnyShapeStyle(LinearGradient(colors: [T.accent, T.rose], startPoint: .leading, endPoint: .trailing)))
+                .fixedSize()
+            // Juste à droite du titre : vérifier, et l'heure de la dernière vérification.
+            Button { Task { await m.verifier() } } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(BoutonDiscret()).disabled(m.enCours).help(L.t("Vérifier maintenant", "Check now"))
+            if m.enCours {
+                ProgressView().controlSize(.small)
+                Text(L.t("vérification…", "checking…")).font(T.police(11)).foregroundStyle(T.doux).fixedSize()
+            } else if let d = m.derniereVerif {
+                Text(L.t("vérifié à \(d.formatted(date: .omitted, time: .shortened))", "checked at \(d.formatted(date: .omitted, time: .shortened))")).font(T.police(11)).foregroundStyle(T.doux).fixedSize()
+            }
+            Spacer(minLength: 8)
+            if let l = m.lot {
+                Text(L.t("Lot : \(l.fait) / \(l.total)", "Batch: \(l.fait) / \(l.total)")).font(T.police(11, .semibold)).foregroundStyle(T.cyan).fixedSize()
+            }
+            // Les onglets, complètement à droite.
+            HStack(spacing: 6) {
+                ForEach(Onglet.allCases) { o in
+                    Button(o.libelle) { etat.onglet = o }.buttonStyle(Puce(active: etat.onglet == o))
+                }
+            }
+        }
+    }
+
+    private func appsDuFiltre(_ f: Filtre) -> [AppInstallee] {
+        switch f {
+        case .aMettreAJour: m.aMettreAJour
+        case .toutes: m.apps
+        case .sansSource: m.apps.filter { $0.source == .aucune && !m.estIgnoree($0) }
+        case .ignorees: m.apps.filter { m.estIgnoree($0) }
+        }
+    }
+
+    /// Les sources présentes dans le filtre en cours, dans un ordre fixe.
+    private var sourcesPresentes: [Source] {
+        let ordre: [Source] = [.homebrew, .sparkle, .appStore, .editeur, .github, .composant, .integree, .abandonnee, .perso, .aucune]
+        let la = Set(appsDuFiltre(etat.filtre).map(\.source))
+        return ordre.filter { la.contains($0) }
+    }
+
+    private var liste: [AppInstallee] {
+        var base = appsDuFiltre(etat.filtre)
+        if etat.filtre == .toutes, let src = etat.source { base = base.filter { $0.source == src } }
+        if !etat.recherche.isEmpty { base = base.filter { $0.nom.localizedCaseInsensitiveContains(etat.recherche) } }
+        if etat.filtre == .toutes && etat.triTaille {
+            base.sort { (m.tailles[$0.chemin] ?? -1) > (m.tailles[$1.chemin] ?? -1) }   // la plus lourde en tête
+        }
+        return base
+    }
+
+    @ViewBuilder private var applications: some View {
+        if let msg = m.message {
+            Text(msg).font(T.police(11)).foregroundStyle(T.ambre).lineLimit(2)
+        }
+        HStack(spacing: 6) {
+            ForEach(Filtre.allCases) { f in
+                Button("\(f.libelle) (\(appsDuFiltre(f).count))") { etat.filtre = f }.buttonStyle(Puce(active: etat.filtre == f))
+            }
+            Spacer(minLength: 12)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(T.tresDoux)
+                TextField(L.t("Rechercher", "Search"), text: $etat.recherche).textFieldStyle(.plain).font(T.police(12)).foregroundStyle(T.texte)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6).verre(14)
+            .frame(minWidth: 130, maxWidth: 220)
+            if !m.selection.isEmpty {
+                Button(L.t("Mettre à jour la sélection (\(m.selection.count))", "Update selection (\(m.selection.count))")) { Task { await m.mettreAJourSelection() } }
+                    .buttonStyle(BoutonPlein(teinte: Boutons.mettreAJour)).fixedSize().disabled(m.lot != nil)
+                    .help(L.t("Seulement les apps cochées, l'une après l'autre", "Only the checked apps, one after the other"))
+            } else if !m.cochables.isEmpty {
+                Button(L.t("Tout mettre à jour (\(m.cochables.count))", "Update all (\(m.cochables.count))")) { Task { await m.toutMettreAJour() } }
+                    .buttonStyle(BoutonPlein(teinte: Boutons.mettreAJour)).fixedSize().disabled(m.lot != nil)
+                    .help(L.t("Toutes les apps à mettre à jour, l'une après l'autre : Homebrew installe, les autres ouvrent leur App Store, leur page ou le Terminal", "Every app to update, one after the other: Homebrew installs, the others open their App Store page, web page or Terminal"))
+            }
+        }
+        // Le filtre par source ne sert que dans « Toutes », et seulement s'il y a plusieurs sources à départager.
+        if etat.filtre == .toutes && sourcesPresentes.count > 1 {
+        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 6) {
+            Text(L.t("Source", "Source")).font(T.police(12)).foregroundStyle(T.tresDoux)
+            Button(L.t("Toutes", "All")) { etat.source = nil }.buttonStyle(Puce(active: etat.source == nil))
+            ForEach(sourcesPresentes, id: \.self) { src in
+                Button("\(src.libelle) (\(appsDuFiltre(etat.filtre).filter { $0.source == src }.count))") {
+                    etat.source = etat.source == src ? nil : src
+                }
+                .buttonStyle(Puce(active: etat.source == src))
+            }
+        }.padding(.vertical, 6).padding(.horizontal, 2) }
+        }
+        if etat.filtre == .toutes {
+            HStack(spacing: 6) {
+                Text(L.t("Trier par", "Sort by")).font(T.police(12)).foregroundStyle(T.tresDoux)
+                Button(L.t("Nom", "Name")) { etat.triTaille = false }.buttonStyle(Puce(active: !etat.triTaille))
+                Button(L.t("Taille", "Size")) { etat.triTaille = true }.buttonStyle(Puce(active: etat.triTaille))
+                if etat.triTaille {
+                    let total = m.tailles.values.reduce(0, +)
+                    Text(L.t("· \(Desinstalleur.lisible(total)) au total", "· \(Desinstalleur.lisible(total)) in total")).font(T.police(12)).foregroundStyle(T.tresDoux)
+                }
+            }
+        }
+        if !m.cochables.isEmpty && (etat.filtre == .aMettreAJour || etat.filtre == .toutes) {
+            let n = m.selection.count, total = m.cochables.count
+            HStack(spacing: 10) {
+                CaseACocher(cochee: n == total, partielle: n > 0 && n < total) { m.toutCocher(n < total) }
+                Text(n == 0 ? L.t("Tout cocher", "Check all") : L.t("\(n) cochée\(n > 1 ? "s" : "") sur \(total)", "\(n) of \(total) checked"))
+                    .font(T.police(12, .medium)).foregroundStyle(T.doux)
+                    .onTapGesture { m.toutCocher(n < total) }
+            }
+            .padding(.horizontal, 10)
+        }
+        ListeAjustee(lignes: liste.count) {
+            VStack(spacing: 6) {
+                ForEach(liste) { LigneApp(app: $0) }
+                if liste.isEmpty && !m.enCours {
+                    Text(etat.filtre == .aMettreAJour ? L.t("Tout est à jour.", "Everything is up to date.") : L.t("Rien ici.", "Nothing here."))
+                        .font(T.police(13)).foregroundStyle(T.doux).padding(.top, 30)
+                }
+            }
+            .padding(.bottom, 8)
+        }
+        if !m.sortieBrew.isEmpty {
+            DisclosureGroup(isExpanded: $etat.sortieOuverte) {
+                ScrollView {
+                    Text(m.sortieBrew).font(.system(size: 11, design: .monospaced)).foregroundStyle(T.doux)
+                        .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                }
+                .frame(height: 140).padding(8).verre(8)
+            } label: {
+                Text(L.t("Sortie Homebrew", "Homebrew output")).font(T.police(11, .semibold)).foregroundStyle(T.doux)
+            }
+        }
+    }
+}
+
+// MARK: - Journal : du plus récent au plus ancien
+
+struct JournalVue: View {
+    @EnvironmentObject var m: Moteur
+    private static let format: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = L.locale
+        f.dateFormat = L.anglais ? "MM/dd/yyyy h:mm a" : "dd/MM/yyyy HH:mm"
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Date").frame(width: 130, alignment: .leading)
+                Text(L.t("Application", "App")).frame(maxWidth: .infinity, alignment: .leading)
+                Text("Versions").frame(width: 230, alignment: .leading)
+                Text(L.t("Quoi", "Event")).frame(width: 110, alignment: .leading)
+                Text(L.t("Par", "By")).frame(width: 110, alignment: .leading)
+            }
+            .font(T.police(11, .semibold)).foregroundStyle(T.tresDoux).padding(.horizontal, 12)
+            if m.historique.isEmpty {
+                Text(L.t("Rien pour l'instant. Chaque mise à jour, installation ou désinstallation s'inscrira ici, y compris celles faites hors de l'app (repérées à la vérification suivante).", "Nothing yet. Every update, install or uninstall will be logged here, including those made outside the app (spotted at the next check)."))
+                    .font(T.police(12)).foregroundStyle(T.doux).padding(.top, 20)
+            }
+            ListeAjustee(lignes: min(m.historique.count, 300)) {
+                VStack(spacing: 4) {
+                    ForEach(m.historique.prefix(300)) { e in
+                        HStack {
+                            Text(Self.format.string(from: e.date)).foregroundStyle(T.doux).frame(width: 130, alignment: .leading)
+                            Text(e.nom).font(T.police(12, .semibold)).foregroundStyle(T.texte).lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 4) {
+                                Text(e.avant ?? "–").foregroundStyle(T.doux)
+                                Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(T.tresDoux)
+                                Text(e.apres ?? "–").foregroundStyle(T.cyan)
+                            }
+                            .lineLimit(1).frame(width: 230, alignment: .leading)
+                            Text(Self.libelle(e.quoi)).foregroundStyle(couleur(e.quoi)).frame(width: 110, alignment: .leading)
+                            Text(Self.libelle(e.par)).foregroundStyle(T.tresDoux).frame(width: 110, alignment: .leading)
+                        }
+                        .font(T.police(12))
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .verre(8)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Le journal est enregistré en français : traduit à l'affichage.
+    static func libelle(_ x: String) -> String {
+        guard L.anglais else { return x }
+        switch x {
+        case "Mise à jour": return "Updated"
+        case "Réinstallée": return "Reinstalled"
+        case "Installée": return "Installed"
+        case "Désinstallée": return "Uninstalled"
+        case "Disparue": return "Removed"
+        case "hors de l'app": return "outside the app"
+        case "Mises à jour": return "this app"
+        case "Éditeur": return "Developer"
+        default: return x
+        }
+    }
+
+    private func couleur(_ quoi: String) -> Color {
+        switch quoi {
+        case "Mise à jour", "Réinstallée": T.cyan
+        case "Installée": T.accent
+        case "Désinstallée", "Disparue": T.framboise
+        default: T.doux
+        }
+    }
+}
+
+// MARK: - Réglages
+
+struct ReglagesVue: View {
+    @EnvironmentObject var m: Moteur
+
+    var body: some View {
+        ListeAjustee(lignes: 7) {
+            VStack(alignment: .leading, spacing: 12) {
+                carte(L.t("Thème", "Theme"), L.t("Bleu nuit, Violine, ou Graphite : le gris presque noir des apps en mode sombre.", "Midnight blue, Violet, or Graphite: the near-black grey of dark-mode apps.")) {
+                    HStack(spacing: 6) {
+                        ForEach(ThemeNom.allCases) { t in
+                            Button(t.libelle) { m.theme = t }.buttonStyle(Puce(active: m.theme == t))
+                        }
+                    }
+                }
+                carte(L.t("Langue", "Language"), L.t("Automatique : celle du système.", "Automatic: the system language.")) {
+                    HStack(spacing: 6) {
+                        ForEach(Langue.allCases) { l in
+                            Button(l.libelle) { m.langue = l }.buttonStyle(Puce(active: m.langue == l))
+                        }
+                    }
+                }
+                carte(L.t("Vérification automatique", "Automatic check"), L.t("En plus de celle faite à chaque lancement.", "On top of the check made at every launch.")) {
+                    HStack(spacing: 6) {
+                        ForEach([1, 3, 6, 12, 24], id: \.self) { h in
+                            Button(h == 24 ? L.t("1 fois par jour", "once a day") : L.t("toutes les \(h) h", "every \(h) h")) { m.frequence = h }
+                                .buttonStyle(Puce(active: m.frequence == h))
+                        }
+                    }
+                }
+                carte(L.t("Notifications", "Notifications"), L.t("Une notification macOS quand une nouvelle mise à jour apparaît.", "A macOS notification when a new update shows up.")) {
+                    Toggle("", isOn: $m.notifications).toggleStyle(.switch).labelsHidden()
+                }
+                carte(L.t("Ouvrir à la connexion", "Open at login"), L.t("L'app se lance seule à l'ouverture de ta session.", "The app starts by itself when you log in.")) {
+                    Toggle("", isOn: Binding(get: { m.lancementSession }, set: { m.basculerLancementSession($0) }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
+                carte(L.t("Apps ignorées", "Ignored apps"), L.t("Elles se retrouvent dans le filtre « Ignorées » de l'onglet Applications, un clic droit les fait suivre à nouveau.", "They are listed under “Ignored” in the Apps tab; right-click to track them again.")) {
+                    Text("\(m.apps.filter { m.estIgnoree($0) }.count)").font(T.police(18, .bold)).foregroundStyle(T.accent)
+                }
+                carte(L.t("Règles", "Rules"), L.t("Pour une app sans autre source : {\"bundleId\": \"…\", \"depot\": \"proprietaire/depot\"} pour GitHub, ou {\"bundleId\": \"…\", \"json\": \"adresse\", \"chemin\": \"mac.version\"} pour une adresse de l'éditeur.", "For an app with no other source: {\"bundleId\": \"…\", \"depot\": \"owner/repo\"} for GitHub, or {\"bundleId\": \"…\", \"json\": \"url\", \"chemin\": \"mac.version\"} for a developer URL.")) {
+                    Button(L.t("Afficher le fichier", "Show file")) { NSWorkspace.shared.activateFileViewerSelecting([Regles.fichier]) }
+                        .buttonStyle(BoutonDiscret())
+                }
+                carte(L.t("Données de l'app", "App data"), L.t("Journal, versions vues, règles.", "Log, seen versions, rules.")) {
+                    Button(L.t("Ouvrir le dossier", "Open folder")) { NSWorkspace.shared.open(Dossiers.support) }.buttonStyle(BoutonDiscret())
+                }
+            }
+        }
+    }
+
+    private func carte<C: View>(_ titre: String, _ detail: String, @ViewBuilder _ contenu: () -> C) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(titre).font(T.police(13, .semibold)).foregroundStyle(T.texte)
+                Text(detail).font(T.police(11)).foregroundStyle(T.doux).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            contenu()
+        }
+        .padding(14)
+        .verre(12)
+    }
+}
+
+// MARK: - Désinstallation
+
+final class EtatDesinstallation: ObservableObject {
+    @Published var residus: [Residu] = []
+    @Published var charge = false
+    @Published var enCours = false
+    @Published var erreur: String?
+}
+
+struct DesinstallationVue: View {
+    @EnvironmentObject var m: Moteur
+    @Environment(\.dismiss) private var fermer
+    @StateObject private var etat = EtatDesinstallation()
+    let app: AppInstallee
+
+    private var total: Int64 { etat.residus.filter(\.coche).compactMap(\.taille).reduce(0, +) }
+
+    var body: some View {
+        ZStack {
+            FondTheme()
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(nsImage: Icones.icone(app.chemin)).resizable().frame(width: 44, height: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.t("Désinstaller \(app.nom)", "Uninstall \(app.nom)")).font(T.police(18, .bold)).foregroundStyle(T.texte)
+                        Text(L.t("Tout part à la Corbeille : rien n'est effacé tant qu'elle n'est pas vidée.", "Everything goes to the Trash: nothing is deleted until you empty it."))
+                            .font(T.police(11)).foregroundStyle(T.doux)
+                    }
+                }
+                if !etat.charge {
+                    HStack { ProgressView().controlSize(.small); Text(L.t("Recherche des fichiers…", "Looking for files…")).font(T.police(12)).foregroundStyle(T.doux) }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 4) {
+                            ForEach($etat.residus) { $r in
+                                HStack(spacing: 10) {
+                                    Toggle("", isOn: $r.coche).toggleStyle(.checkbox).labelsHidden()
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text((r.chemin as NSString).lastPathComponent).font(T.police(12, .semibold)).foregroundStyle(T.texte).lineLimit(1)
+                                        Text((r.chemin as NSString).deletingLastPathComponent).font(T.police(10)).foregroundStyle(T.tresDoux)
+                                            .lineLimit(1).truncationMode(.middle)
+                                    }
+                                    Spacer(minLength: 8)
+                                    Text(r.raison).font(T.police(10)).foregroundStyle(r.douteux || r.protege ? T.ambre : T.tresDoux)
+                                    Text(r.taille.map(Desinstalleur.lisible) ?? "—").font(T.police(11, .medium)).foregroundStyle(T.doux)
+                                        .frame(width: 80, alignment: .trailing)
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 6).verre(8)
+                            }
+                        }
+                    }
+                }
+                if etat.residus.contains(where: \.protege) {
+                    HStack(spacing: 10) {
+                        Text(L.t("Les dossiers « protégés par macOS » ne peuvent partir qu'avec l'Accès complet au disque accordé à Mises à jour.", "Folders “protected by macOS” can only be removed once this app has Full Disk Access."))
+                            .font(T.police(11)).foregroundStyle(T.ambre).fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button(L.t("Ouvrir les réglages", "Open Settings")) {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+                        }
+                        .buttonStyle(BoutonDiscret())
+                    }
+                }
+                if let e = etat.erreur { Text(e).font(T.police(11)).foregroundStyle(T.framboise).lineLimit(3) }
+                HStack {
+                    Text(L.t("\(etat.residus.filter(\.coche).count) élément(s) · \(Desinstalleur.lisible(total))", "\(etat.residus.filter(\.coche).count) item(s) · \(Desinstalleur.lisible(total))"))
+                        .font(T.police(12, .semibold)).foregroundStyle(T.doux)
+                    Spacer()
+                    Button(L.t("Annuler", "Cancel")) { fermer() }.buttonStyle(BoutonDiscret()).keyboardShortcut(.cancelAction)
+                    Button(etat.enCours ? L.t("En cours…", "Working…") : L.t("Mettre à la Corbeille", "Move to Trash")) {
+                        Task {
+                            etat.enCours = true
+                            let chemins = etat.residus.filter(\.coche).map(\.chemin)
+                            etat.erreur = await m.desinstaller(app, chemins)
+                            etat.enCours = false
+                            if etat.erreur == nil { fermer() }
+                        }
+                    }
+                    .buttonStyle(BoutonPlein(teinte: Boutons.danger))
+                    .disabled(etat.enCours || !etat.charge || !etat.residus.contains(where: \.coche))
+                }
+            }
+            .padding(20)
+        }
+        .frame(width: 720, height: 520)
+        .preferredColorScheme(.dark)
+        .task {
+            let a = app
+            etat.residus = await Task.detached { Desinstalleur.chercher(a) }.value
+            etat.charge = true
+        }
+    }
+}
+
+// MARK: - Panneau de la barre des menus
+
+struct PanneauMenu: View {
+    @EnvironmentObject var m: Moteur
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(L.t("Mises à jour", "App Updater")).font(T.police(15, .bold)).foregroundStyle(T.texte)
+                Spacer()
+                if let l = m.lot {
+                    Text("\(l.fait) / \(l.total)").font(T.police(11, .semibold)).foregroundStyle(T.cyan)
+                }
+                if m.enCours {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button { Task { await m.verifier() } } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.plain).foregroundStyle(T.doux).help(L.t("Vérifier maintenant", "Check now"))
+                }
+            }
+            Text(sousTitre).font(T.police(11)).foregroundStyle(T.doux)
+            if let msg = m.message {
+                Text(msg).font(T.police(10)).foregroundStyle(T.ambre).lineLimit(2)
+            }
+            if !m.aMettreAJour.isEmpty {
+                ScrollView {
+                    VStack(spacing: 5) { ForEach(m.aMettreAJour) { LigneApp(app: $0, compacte: true) } }
+                }
+                .frame(height: min(CGFloat(m.aMettreAJour.count) * 45, 360) + CGFloat(m.progression.count) * 30)
+            }
+            HStack {
+                if !m.cochables.isEmpty {
+                    Button(L.t("Tout mettre à jour (\(m.cochables.count))", "Update all (\(m.cochables.count))")) { Task { await m.toutMettreAJour() } }
+                        .buttonStyle(BoutonPlein(teinte: Boutons.mettreAJour)).disabled(m.lot != nil)
+                }
+                Spacer()
+                Button(L.t("Liste complète", "Full list")) { m.montrerFenetre?() }
+                .buttonStyle(BoutonDiscret())
+            }
+            Divider().overlay(T.trait)
+            HStack {
+                Spacer()
+                Button(L.t("Quitter", "Quit")) { NSApp.terminate(nil) }.buttonStyle(.plain).font(T.police(11)).foregroundStyle(T.doux)
+            }
+        }
+        .padding(14)
+        .frame(width: 480)
+        .background(FondTheme())
+        .preferredColorScheme(.dark)
+        .id("\(m.theme.rawValue)-\(m.langue.rawValue)")
+    }
+
+    private var sousTitre: String {
+        if m.enCours && m.apps.isEmpty { return L.t("Première vérification en cours…", "First check in progress…") }
+        let n = m.aMettreAJour.count
+        let debut = n == 0 ? L.t("Tout est à jour", "Everything is up to date") : (n == 1 ? L.t("1 mise à jour disponible", "1 update available") : L.t("\(n) mises à jour disponibles", "\(n) updates available"))
+        guard let d = m.derniereVerif else { return debut }
+        return debut + L.t(" · vérifié à \(d.formatted(date: .omitted, time: .shortened))", " · checked at \(d.formatted(date: .omitted, time: .shortened))")
+    }
+}
+
+// MARK: - Liste qui prend la hauteur de son contenu, et défile au-delà de 30 lignes
+
+struct HauteurCle: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+final class Mesure: ObservableObject {
+    @Published var hauteur: CGFloat = 0
+}
+
+struct ListeAjustee<Contenu: View>: View {
+    let lignes: Int
+    var maxLignes = 30
+    @ViewBuilder let contenu: () -> Contenu
+    @StateObject private var mesure = Mesure()
+
+    var body: some View {
+        ScrollView {
+            contenu()
+                .background(GeometryReader { g in Color.clear.preference(key: HauteurCle.self, value: g.size.height) })
+        }
+        .onPreferenceChange(HauteurCle.self) { h in mesure.hauteur = h }
+        .frame(height: plafond)
+    }
+
+    /// Au-delà de `maxLignes`, la hauteur de `maxLignes` lignes moyennes ; en deçà, tout le contenu ; jamais plus que l'écran.
+    private var plafond: CGFloat {
+        let trente = lignes > maxLignes ? mesure.hauteur / CGFloat(lignes) * CGFloat(maxLignes) : mesure.hauteur
+        // Et jamais plus que l'écran, moins la place de l'en-tête, des filtres et de la barre de titre.
+        let ecran = (NSScreen.main?.visibleFrame.height ?? 900) - 300
+        return min(trente, max(ecran, 200))
+    }
+}
