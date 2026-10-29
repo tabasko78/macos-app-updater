@@ -177,6 +177,19 @@ final class Moteur: ObservableObject {
         Historique.enregistrer(historique)
     }
 
+    /// Bouton « Effacer la liste » du Journal, après confirmation.
+    func effacerJournal() {
+        let alerte = NSAlert()
+        alerte.messageText = L.t("Effacer tout le journal ?", "Clear the whole log?")
+        alerte.informativeText = L.t("Les \(historique.count) lignes seront supprimées. Les apps et leurs versions ne sont pas touchées.",
+                                     "The \(historique.count) lines will be deleted. Apps and their versions are not affected.")
+        alerte.addButton(withTitle: L.t("Effacer", "Clear"))
+        alerte.addButton(withTitle: L.t("Annuler", "Cancel"))
+        guard alerte.runModal() == .alertFirstButtonReturn else { return }
+        historique = []
+        Historique.enregistrer(historique)
+    }
+
     private func retenirVersion(_ a: AppInstallee) {
         var v = Historique.versionsVues()
         v[a.chemin] = a.nom + "|" + a.versionAffichee

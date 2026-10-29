@@ -237,7 +237,8 @@ struct FenetreListe: View {
             .padding(.top, 2)   // la barre de titre transparente laisse déjà sa hauteur au-dessus
             // Hauteur naturelle du contenu : le Delegue y ajuste la fenêtre.
             .background(GeometryReader { g in Color.clear.preference(key: HauteurCle.self, value: g.size.height) })
-            .onPreferenceChange(HauteurCle.self) { h in m.hauteurFenetre = h }
+            // Le Journal garde la taille de la fenêtre telle qu'elle était : seule sa liste défile.
+            .onPreferenceChange(HauteurCle.self) { h in if etat.onglet != .journal { m.hauteurFenetre = h } }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             if etat.survolDepot {
                 RoundedRectangle(cornerRadius: 16).stroke(T.rose, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
@@ -403,8 +404,31 @@ struct FenetreListe: View {
 
 // MARK: - Journal : du plus récent au plus ancien
 
+enum Periode: Int, CaseIterable, Identifiable {
+    case sept = 7, trente = 30, tout = 0
+    var id: Int { rawValue }
+    var libelle: String {
+        switch self {
+        case .sept: L.t("7 derniers jours", "Last 7 days")
+        case .trente: L.t("30 derniers jours", "Last 30 days")
+        case .tout: L.t("Tout", "All")
+        }
+    }
+}
+
+final class EtatJournal: ObservableObject {
+    @Published var periode: Periode = .tout
+}
+
 struct JournalVue: View {
     @EnvironmentObject var m: Moteur
+    @StateObject private var etat = EtatJournal()
+
+    private var entrees: [EntreeJournal] {
+        guard etat.periode != .tout else { return m.historique }
+        let depuis = Calendar.current.date(byAdding: .day, value: -etat.periode.rawValue, to: Date()) ?? .distantPast
+        return m.historique.filter { $0.date >= depuis }
+    }
     private static let format: DateFormatter = {
         let f = DateFormatter()
         f.locale = L.locale
@@ -414,6 +438,16 @@ struct JournalVue: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(Periode.allCases) { p in
+                    Button(p.libelle) { etat.periode = p }.buttonStyle(Puce(active: etat.periode == p))
+                }
+                Spacer()
+                if !m.historique.isEmpty {
+                    Button(L.t("Effacer la liste", "Clear the list")) { m.effacerJournal() }.buttonStyle(BoutonDiscret())
+                }
+            }
+            .padding(.bottom, 4)
             HStack {
                 Text("Date").frame(width: 130, alignment: .leading)
                 Text(L.t("Application", "App")).frame(maxWidth: .infinity, alignment: .leading)
@@ -422,13 +456,13 @@ struct JournalVue: View {
                 Text(L.t("Par", "By")).frame(width: 110, alignment: .leading)
             }
             .font(T.police(11, .semibold)).foregroundStyle(T.tresDoux).padding(.horizontal, 12)
-            if m.historique.isEmpty {
+            if entrees.isEmpty {
                 Text(L.t("Rien pour l'instant. Chaque mise à jour, installation ou désinstallation s'inscrira ici, y compris celles faites hors de l'app (repérées à la vérification suivante).", "Nothing yet. Every update, install or uninstall will be logged here, including those made outside the app (spotted at the next check)."))
                     .font(T.police(12)).foregroundStyle(T.doux).padding(.top, 20)
             }
-            ListeAjustee(lignes: min(m.historique.count, 300)) {
-                VStack(spacing: 4) {
-                    ForEach(m.historique.prefix(300)) { e in
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(entrees) { e in
                         HStack {
                             Text(Self.format.string(from: e.date)).foregroundStyle(T.doux).frame(width: 130, alignment: .leading)
                             Text(e.nom).font(T.police(12, .semibold)).foregroundStyle(T.texte).lineLimit(1)
