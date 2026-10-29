@@ -195,15 +195,23 @@ final class Moteur: ObservableObject {
     // MARK: - Résumés Gemini
 
     /// Résume les notes de version des mises à jour en vue, une seule fois par version.
+    /// Une erreur Gemini n'est affichée que tant qu'elle est vraie : effacée au prochain essai, et dès qu'un résumé passe.
+    private var messageGemini: String?
+
     func resumer() async {
         guard gemini, let k = Resumeur.cle else { return }
+        if let g = messageGemini, message == g { message = nil }
+        messageGemini = nil
         for a in aMettreAJour + enAttente where resumes[cle(a)] == nil {
             guard let notes = await Resumeur.notes(a) else { continue }
             do {
                 resumes[cle(a)] = try await Resumeur.resumer(a, notes: notes, cle: k)
                 Resumeur.enregistrer(resumes)
+                if let g = messageGemini, message == g { message = nil }
+                messageGemini = nil
             } catch {
-                message = error.localizedDescription
+                messageGemini = error.localizedDescription
+                message = messageGemini
                 return
             }
         }

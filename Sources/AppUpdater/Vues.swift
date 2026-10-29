@@ -713,7 +713,7 @@ struct ReglagesVue: View {
     private func ligne<C: View>(_ titre: String, _ aide: String, @ViewBuilder _ controle: () -> C) -> some View {
         HStack(spacing: 8) {
             Text(titre).font(T.police(13, .medium)).foregroundStyle(T.texte)
-            Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(T.tresDoux).help(aide)
+            Info(texte: aide)
             Spacer(minLength: 12)
             controle()
         }
@@ -950,5 +950,33 @@ struct ListeAjustee<Contenu: View>: View {
         // Et jamais plus que l'écran, moins la place de l'en-tête, des filtres et de la barre de titre.
         let ecran = (NSScreen.main?.visibleFrame.height ?? 900) - 300
         return min(trente, max(ecran, 200))
+    }
+}
+
+// MARK: - ⓘ : l'explication d'un réglage, affichée au survol
+// (l'infobulle système ne s'affichait pas : l'app de barre des menus n'est pas « active » au survol)
+
+final class Survol: ObservableObject {
+    @Published var visible = false
+}
+
+struct Info: View {
+    let texte: String
+    @StateObject private var survol = Survol()
+
+    var body: some View {
+        Image(systemName: "info.circle")
+            .font(.system(size: 11))
+            .foregroundStyle(survol.visible ? T.texte : T.tresDoux)
+            .contentShape(Rectangle())
+            .onHover { survol.visible = $0 }
+            .popover(isPresented: $survol.visible, arrowEdge: .bottom) {
+                Text(texte)
+                    .font(T.police(12))
+                    .foregroundStyle(T.texte)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 280, alignment: .leading)
+                    .padding(12)
+            }
     }
 }
