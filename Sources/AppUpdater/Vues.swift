@@ -26,6 +26,9 @@ struct LigneApp: View {
 
     private var largeurBouton: CGFloat { compacte ? 116 : 132 }
 
+    /// L'app peut être cochée : une mise à jour proposée, qu'un bouton sait lancer.
+    private var cochable: Bool { !compacte && app.aJour == false && app.action != .aucune && !m.estIgnoree(app) && m.joursRestants(app) == nil }
+
     /// Taille sur le disque, collée au nom.
     private var details: String? { m.tailles[app.chemin].map(Desinstalleur.lisible) }
 
@@ -42,7 +45,7 @@ struct LigneApp: View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
                 if !compacte {
-                    if app.aJour == false && app.action != .aucune && !m.estIgnoree(app) && m.joursRestants(app) == nil {
+                    if cochable {
                         CaseACocher(cochee: m.selection.contains(app.id)) { m.basculer(app) }
                     } else {
                         Color.clear.frame(width: 18, height: 18)
@@ -78,6 +81,9 @@ struct LigneApp: View {
         .padding(.horizontal, 10).padding(.vertical, compacte ? 5 : 7)
         .padding(.bottom, m.progression[app.id] != nil ? 4 : 0)
         .verre(10)
+        // Un clic n'importe où sur la carte (hors boutons) coche ou décoche l'app.
+        .contentShape(Rectangle())
+        .onTapGesture { if cochable { m.basculer(app) } }
         // Carte en cours de mise à jour : liseré de la couleur du thème, pour la distinguer des autres.
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(T.accent.opacity(m.progression[app.id] != nil ? 0.55 : 0), lineWidth: 1))
         .opacity(m.estIgnoree(app) ? 0.55 : 1)
@@ -611,7 +617,7 @@ struct ReglagesVue: View {
                             (h, h == 24 ? L.t("1 fois par jour", "once a day") : L.t("toutes les \(h) h", "every \(h) h"))
                         })
                     }
-                    ligne(L.t("Délai avant de proposer une version", "Delay before offering a version"), L.t("Une nouvelle version n'est proposée qu'une fois « éprouvée » : sortie depuis ce nombre de jours.", "A new version is only offered once “proven”: out for this many days.")) {
+                    ligne(L.t("Délai avant de proposer une version", "Delay before offering a version"), L.t("Laisse une nouvelle version faire ses preuves : elle n'apparaît qu'après ce nombre de jours, le temps que ses premiers bugs soient corrigés.", "Lets a new version prove itself: it only shows up after this many days, once its first bugs have been fixed.")) {
                         Deroulant(valeur: $m.delai, options: [0, 1, 7, 15].map { j in (j, j == 0 ? L.t("Aucun", "None") : L.t("\(j) jours", "\(j) days")) })
                     }
                     ligne(L.t("Notifications", "Notifications"), L.t("Une notification macOS quand une nouvelle mise à jour apparaît.", "A macOS notification when a new update shows up.")) {
@@ -628,7 +634,7 @@ struct ReglagesVue: View {
             .frame(maxWidth: .infinity, alignment: .top)
             VStack(alignment: .leading, spacing: 14) {
                 rubrique(L.t("Mises à jour", "Updates")) {
-                    ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les apps proposées s'installent seules. Jamais les apps ouvertes, celles qui demandent ton mot de passe, ni les versions majeures.", "At every check, offered updates install by themselves. Never open apps, apps that need your password, or major versions.")) {
+                    ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les mises à jour s'installent toutes seules. Seules attendent ton clic celles qui demanderaient de fermer une app ouverte, ton mot de passe, ou une nouvelle licence (version majeure).", "At every check, updates install by themselves. Only those that would need to quit an open app, your password, or a new license (major version) wait for your click.")) {
                         Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
                     }
                     ligne(L.t("Fermer les apps sans demander", "Quit apps without asking"), L.t("Avant de mettre à jour une app ouverte, elle est fermée sans question (puis rouverte).", "Before updating an open app, it is quit without asking (then reopened).")) {
@@ -638,7 +644,7 @@ struct ReglagesVue: View {
                     }
                 }
                 rubrique(L.t("Résumés des nouveautés", "What's new summaries")) {
-                    ligne("Gemini", L.t("Gemini résume en deux phrases les notes de version des mises à jour proposées, avec ta propre clé d'API (aistudio.google.com). Seules les notes de version lui sont envoyées.", "Gemini summarizes the release notes of offered updates in two sentences, with your own API key (aistudio.google.com). Only the release notes are sent.")) {
+                    ligne("Gemini", L.t("Résume en deux phrases ce qu'apporte chaque mise à jour, d'après ses notes de version ou, à défaut, une recherche web. Avec ta propre clé d'API Gemini (aistudio.google.com).", "Sums up in two sentences what each update brings, from its release notes or, failing that, a web search. With your own Gemini API key (aistudio.google.com).")) {
                         Toggle("", isOn: $m.gemini).toggleStyle(Interrupteur()).labelsHidden()
                     }
                     ligne(L.t("Consommation depuis le début", "Usage since the start"),
@@ -698,8 +704,9 @@ struct ReglagesVue: View {
         let dollars = c.reduce(0.0) { $0 + ($1.dollars ?? 0) }
         let n = { (x: Int) in x.formatted(.number.locale(L.locale)) }
         let montant = dollars.formatted(.number.precision(.fractionLength(dollars < 1 ? 3 : 2)).locale(L.locale))
-        return L.t("\(n(appels)) appels · \(n(jetons)) jetons · \(n(recherches)) recherches · ≈ \(montant) $",
-                   "\(n(appels)) calls · \(n(jetons)) tokens · \(n(recherches)) searches · ≈ $\(montant)")
+        let s = { (x: Int) in x > 1 ? "s" : "" }
+        return L.t("\(n(appels)) appel\(s(appels)) · \(n(jetons)) jeton\(s(jetons)) · \(n(recherches)) recherche\(s(recherches)) · ≈ \(montant) $",
+                   "\(n(appels)) call\(s(appels)) · \(n(jetons)) token\(s(jetons)) · \(n(recherches)) search\(recherches > 1 ? "es" : "") · ≈ $\(montant)")
     }
 
     /// Vérifie la clé auprès de Gemini avant de l'enregistrer, et affiche ✓ ou ✗.

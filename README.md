@@ -2,7 +2,9 @@
 
 A small menu bar app that checks every app in `/Applications` for updates and installs them, a free alternative to MacUpdater. The interface is in English or French, following your system language (it can be changed in Settings).
 
-![macOS App Updater](docs/screenshot.jpg)
+![Updates to install](docs/apps.jpg)
+
+![Settings](docs/settings.jpg)
 
 ## What it does
 
