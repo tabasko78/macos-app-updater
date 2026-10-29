@@ -460,7 +460,7 @@ struct FenetreListe: View {
         }
         // Place gardée pour ce qui entoure la liste : la sortie Homebrew ouverte et les messages en plus.
         ListeAjustee(lignes: liste.count,
-                     reserve: 300 + (etat.sortieOuverte && !m.sortieBrew.isEmpty ? 200 : 0)
+                     reserve: 300 + (m.voirSortieBrew && etat.sortieOuverte && !m.sortieBrew.isEmpty ? 200 : 0)
                          + CGFloat(min(m.avis.count, 6)) * 22 + (m.nouvelleVersionApp != nil ? 50 : 0)) {
             VStack(spacing: 6) {
                 ForEach(liste) { LigneApp(app: $0) }
@@ -471,7 +471,8 @@ struct FenetreListe: View {
             }
             .padding(.bottom, 8)
         }
-        if !m.sortieBrew.isEmpty {
+        // Option avancée, éteinte par défaut : le détail technique de Homebrew ne sert qu'en cas de souci.
+        if m.voirSortieBrew && !m.sortieBrew.isEmpty {
             DisclosureGroup(isExpanded: $etat.sortieOuverte) {
                 ScrollView {
                     Text(Moteur.compresser(m.sortieBrew)).font(.system(size: 11, design: .monospaced)).foregroundStyle(T.doux)
@@ -703,6 +704,10 @@ struct ReglagesVue: View {
                     }
                 }
                 rubrique(L.t("Options avancées", "Advanced options")) {
+                    ligne(L.t("Afficher la sortie Homebrew", "Show the Homebrew output"),
+                          L.t("Le détail de ce qu'écrit Homebrew pendant une mise à jour, sous la liste. Utile seulement pour comprendre un échec.", "What Homebrew writes during an update, below the list. Only useful to understand a failure.")) {
+                        Toggle("", isOn: $m.voirSortieBrew).toggleStyle(Interrupteur()).labelsHidden()
+                    }
                     ligne(L.t("Apps ignorées", "Ignored apps"), L.t("Elles se retrouvent dans le filtre « Ignorées » de l'onglet Applications, un clic droit les fait suivre à nouveau.", "They are listed under “Ignored” in the Apps tab; right-click to track them again.")) {
                         Text("\(m.apps.filter { m.estIgnoree($0) }.count)").font(T.police(14, .bold)).foregroundStyle(T.accent)
                     }

@@ -107,6 +107,7 @@ final class Moteur: ObservableObject {
     var appliquerAffichage: (() -> Void)?                // posé par le Delegue, qui tient l'icône et le Dock
     @Published var delai: Int { didSet { reglages.set(delai, forKey: "delai") } }             // jours avant de proposer une version
     @Published var automatique: Bool { didSet { reglages.set(automatique, forKey: "automatique") } }
+    @Published var voirSortieBrew: Bool { didSet { reglages.set(voirSortieBrew, forKey: "voirSortieBrew") } }
     @Published var gemini: Bool { didSet { reglages.set(gemini, forKey: "gemini"); Task { await resumer() } } }
     private var premieresVues: [String: Date] = Historique.premieresVues()   // bundle id@version → vue la 1re fois
 
@@ -134,6 +135,7 @@ final class Moteur: ObservableObject {
         affichage = reglages.string(forKey: "affichage").flatMap(Affichage.init(rawValue:)) ?? .menu
         delai = reglages.object(forKey: "delai") as? Int ?? 0
         automatique = reglages.bool(forKey: "automatique")
+        voirSortieBrew = reglages.bool(forKey: "voirSortieBrew")
         gemini = reglages.bool(forKey: "gemini")
         planifier()
         surveillerApplications()
