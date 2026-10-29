@@ -23,14 +23,15 @@ PERSO=""
 # for its own processor, so this costs about 1 MB on disk and nothing in memory.
 : > .build-journal.txt
 for arch in arm64 x86_64; do
-    if ! swift build -c release --build-system native --arch $arch >> .build-journal.txt 2>&1; then
+    # Un dossier de travail par processeur : alterner les deux dans le même dossier fait échouer SwiftPM.
+    if ! swift build -c release --build-system native --arch $arch --scratch-path .build/arch-$arch >> .build-journal.txt 2>&1; then
         grep -E "error:" .build-journal.txt | sort -u
         echo "Build failed ($arch), details: $PWD/.build-journal.txt"
         exit 1
     fi
 done
 mkdir -p .build/universel
-lipo -create .build/arm64-apple-macosx/release/AppUpdater .build/x86_64-apple-macosx/release/AppUpdater -output .build/universel/AppUpdater
+lipo -create .build/arch-arm64/release/AppUpdater .build/arch-x86_64/release/AppUpdater -output .build/universel/AppUpdater
 
 # Icon drawn by the app itself, in the colours of the default theme (the Dock icon then follows the chosen theme).
 THEME="Graphite"
