@@ -20,7 +20,8 @@ final class Moteur: ObservableObject {
     @Published var tailles: [String: Int64] = [:]       // chemin → octets occupés sur le disque
     @Published var selection: Set<String> = []          // ids des apps cochées
     var montrerFenetre: (() -> Void)?
-    @Published var hauteurFenetre: CGFloat = 0           // hauteur naturelle du contenu de la fenêtre                   // posé par le Delegue, qui tient la fenêtre
+    @Published var hauteurFenetre: CGFloat = 0           // hauteur naturelle du contenu de la fenêtre
+    var journalOuvert = false                            // le Journal agrandit la fenêtre, sans jamais la réduire                   // posé par le Delegue, qui tient la fenêtre
 
     @Published var theme: ThemeNom { didSet { reglages.set(theme.rawValue, forKey: "theme") } }
     @Published var langue: Langue {

@@ -136,6 +136,8 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let ecran = (f.screen ?? NSScreen.main)?.visibleFrame ?? .zero
         let voulue = min(max(contenu + barre, f.minSize.height), ecran.height - 20)
         guard abs(voulue - f.frame.height) > 1 else { return }
+        // Journal : la fenêtre grandit pour montrer ses lignes (20 au plus), mais ne rapetisse pas.
+        if moteur.journalOuvert && voulue < f.frame.height { return }
         var cadre = f.frame
         cadre.origin.y = cadre.maxY - voulue
         cadre.size.height = voulue

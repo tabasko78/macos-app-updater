@@ -237,8 +237,7 @@ struct FenetreListe: View {
             .padding(.top, 2)   // la barre de titre transparente laisse déjà sa hauteur au-dessus
             // Hauteur naturelle du contenu : le Delegue y ajuste la fenêtre.
             .background(GeometryReader { g in Color.clear.preference(key: HauteurCle.self, value: g.size.height) })
-            // Le Journal garde la taille de la fenêtre telle qu'elle était : seule sa liste défile.
-            .onPreferenceChange(HauteurCle.self) { h in if etat.onglet != .journal { m.hauteurFenetre = h } }
+            .onPreferenceChange(HauteurCle.self) { h in m.hauteurFenetre = h }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             if etat.survolDepot {
                 RoundedRectangle(cornerRadius: 16).stroke(T.rose, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
@@ -259,6 +258,7 @@ struct FenetreListe: View {
             }
             return true
         }
+        .onChange(of: etat.onglet, initial: true) { _, o in m.journalOuvert = o == .journal }
         .sheet(item: $m.aDesinstaller) { DesinstallationVue(app: $0).environmentObject(m) }
     }
 
@@ -461,9 +461,10 @@ struct JournalVue: View {
                 Text(L.t("Rien pour l'instant. Chaque mise à jour, installation ou désinstallation s'inscrira ici, y compris celles faites hors de l'app (repérées à la vérification suivante).", "Nothing yet. Every update, install or uninstall will be logged here, including those made outside the app (spotted at the next check)."))
                     .font(T.police(12)).foregroundStyle(T.doux).padding(.top, 20)
             }
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(entrees) { e in
+            // Jusqu'à 20 lignes visibles, puis la liste défile.
+            ListeAjustee(lignes: min(entrees.count, 500), maxLignes: 20) {
+                VStack(spacing: 4) {
+                    ForEach(entrees.prefix(500)) { e in
                         HStack {
                             Text(Self.format.string(from: e.date)).foregroundStyle(T.doux).frame(width: 130, alignment: .leading)
                             Text(e.nom).font(T.police(12, .semibold)).foregroundStyle(T.texte).lineLimit(1)
