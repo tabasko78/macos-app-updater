@@ -405,10 +405,11 @@ struct FenetreListe: View {
 // MARK: - Journal : du plus récent au plus ancien
 
 enum Periode: Int, CaseIterable, Identifiable {
-    case sept = 7, trente = 30, tout = 0
+    case jour = 1, sept = 7, trente = 30, tout = 0
     var id: Int { rawValue }
     var libelle: String {
         switch self {
+        case .jour: L.t("Dernières 24 heures", "Last 24 hours")
         case .sept: L.t("7 derniers jours", "Last 7 days")
         case .trente: L.t("30 derniers jours", "Last 30 days")
         case .tout: L.t("Tout", "All")
@@ -417,7 +418,7 @@ enum Periode: Int, CaseIterable, Identifiable {
 }
 
 final class EtatJournal: ObservableObject {
-    @Published var periode: Periode = .tout
+    @Published var periode: Periode = .jour
 }
 
 struct JournalVue: View {
