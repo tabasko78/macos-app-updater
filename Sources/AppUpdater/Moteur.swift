@@ -552,14 +552,15 @@ final class Moteur: ObservableObject {
     /// Homebrew passe parfois par sudo (paquets .pkg, services à arrêter comme ShipIt de Visual Studio Code).
     /// Sans terminal, sudo attendait un mot de passe que personne ne pouvait taper et la mise à jour ne finissait
     /// jamais (29/10/2026). Avec SUDO_ASKPASS, Homebrew appelle `sudo -A`, qui demande le mot de passe par ce
-    /// script : une fenêtre macOS standard, rien n'est gardé.
+    /// script : une fenêtre macOS standard, rien n'est gardé. « activate » la fait passer devant toutes les
+    /// fenêtres : sans lui, elle pouvait s'ouvrir derrière et la mise à jour semblait arrêtée (Chrome, 29/10/2026).
     static func demandeMotDePasse() -> String {
         let f = Dossiers.support.appendingPathComponent("demande-mot-de-passe.sh")
         let invite = L.t("Homebrew a besoin du mot de passe de ta session pour terminer la mise à jour.",
                          "Homebrew needs your login password to finish the update.")
         let script = """
         #!/bin/zsh
-        /usr/bin/osascript -e 'display dialog "\(invite.replacingOccurrences(of: "'", with: "’"))" with title "\(L.t("Mises à jour", "App Updater"))" default answer "" with hidden answer with icon caution buttons {"\(L.t("Annuler", "Cancel"))", "OK"} default button "OK"' -e 'text returned of result'
+        /usr/bin/osascript -e 'activate' -e 'display dialog "\(invite.replacingOccurrences(of: "'", with: "’"))" with title "\(L.t("Mises à jour", "App Updater"))" default answer "" with hidden answer with icon caution buttons {"\(L.t("Annuler", "Cancel"))", "OK"} default button "OK"' -e 'text returned of result'
         """
         try? script.write(to: f, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.path)
