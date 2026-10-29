@@ -7,7 +7,26 @@ final class Moteur: ObservableObject {
     @Published var apps: [AppInstallee] = []
     @Published var enCours = false
     @Published var derniereVerif: Date?
-    @Published var message: String?
+    /// Les messages affichés au-dessus de la liste, le plus récent en tête. Un lot de 20 mises à jour peut en
+    /// produire plusieurs : ils s'empilent au lieu de se remplacer, et chacun se ferme d'un clic.
+    @Published var avis: [Avis] = []
+    struct Avis: Identifiable, Equatable {
+        let id = UUID()
+        let texte: String
+    }
+
+    /// Écrire un message l'ajoute en tête de la pile (sans doublon) ; nil ne fait rien.
+    var message: String? {
+        get { avis.first?.texte }
+        set {
+            guard let v = newValue, !v.isEmpty else { return }
+            avis.removeAll { $0.texte == v }
+            avis.insert(Avis(texte: v), at: 0)
+            if avis.count > 50 { avis.removeLast(avis.count - 50) }
+        }
+    }
+
+    func retirerAvis(_ a: Avis) { avis.removeAll { $0.id == a.id } }
     @Published var sortieBrew = ""
     @Published var progression: [String: Double] = [:]   // id de l'app → 0…1, -1 tant que la taille est inconnue
     @Published var etape: [String: String] = [:]         // id de l'app → texte affiché sous la barre
@@ -147,7 +166,7 @@ final class Moteur: ObservableObject {
         let r = await Verification.tout()
         contexte = r.contexte
         apps = r.apps.sorted { $0.nom.localizedCaseInsensitiveCompare($1.nom) == .orderedAscending }
-        message = r.erreurs.isEmpty ? nil : r.erreurs.joined(separator: " · ")
+        if !r.erreurs.isEmpty { message = r.erreurs.joined(separator: " · ") }
         derniereVerif = Date()
         let restantes = Set(cochables.map(\.id))
         selection = selection.intersection(restantes)
@@ -204,7 +223,7 @@ final class Moteur: ObservableObject {
 
     func resumer() async {
         guard gemini, let k = Resumeur.cle else { return }
-        if let g = messageGemini, message == g { message = nil }
+        if let g = messageGemini { avis.removeAll { $0.texte == g } }
         messageGemini = nil
         // Une version qui a échoué (Gemini saturé, réseau…) n'est retentée qu'une fois par jour : sinon chaque
         // vérification, toutes les heures, repayait l'appel (68 appels pour 33 résumés sur l'iMac, 29/10/2026).
@@ -225,7 +244,7 @@ final class Moteur: ObservableObject {
                     }
                 }
                 Resumeur.enregistrer(resumes)
-                if let g = messageGemini, message == g { message = nil }
+                if let g = messageGemini { avis.removeAll { $0.texte == g } }
                 messageGemini = nil
             } catch {
                 echecs[cle(a)] = Date()
@@ -454,6 +473,7 @@ final class Moteur: ObservableObject {
     private func enLot(_ liste: [AppInstallee]) async {
         guard !liste.isEmpty, lot == nil else { return }
         lot = (0, liste.count)
+        avis.removeAll()   // un nouveau lot repart d'une pile propre
         var echecs: [String] = []
         for a in liste {
             await mettreAJour(a)

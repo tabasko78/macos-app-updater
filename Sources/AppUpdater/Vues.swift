@@ -394,9 +394,7 @@ struct FenetreListe: View {
     }
 
     @ViewBuilder private var applications: some View {
-        if let msg = m.message {
-            Text(msg).font(T.police(11)).foregroundStyle(T.ambre).lineLimit(2)
-        }
+        if !m.avis.isEmpty { PileAvis(limite: 6) }
         HStack(spacing: 6) {
             ForEach(Filtre.allCases) { f in
                 Button("\(f.libelle) (\(f == .aMettreAJour ? m.aMettreAJour.count : appsDuFiltre(f).count))") { etat.filtre = f }.buttonStyle(Puce(active: etat.filtre == f))
@@ -927,9 +925,7 @@ struct PanneauMenu: View {
                 Text(L.t("Nouvelle version de l'app : \(p.version)", "New version of the app: \(p.version)"))
                     .font(T.police(11, .semibold)).foregroundStyle(T.accent)
             }
-            if let msg = m.message {
-                Text(msg).font(T.police(10)).foregroundStyle(T.ambre).lineLimit(2)
-            }
+            if !m.avis.isEmpty { PileAvis(limite: 3, compacte: true) }
             if !m.aMettreAJour.isEmpty {
                 ScrollView {
                     VStack(spacing: 5) { ForEach(m.aMettreAJour) { LigneApp(app: $0, compacte: true) } }
@@ -1034,5 +1030,39 @@ struct Info: View {
                     .frame(width: 280, alignment: .leading)
                     .padding(12)
             }
+    }
+}
+
+// MARK: - Pile des messages : chacun visible, refermable d'un clic
+
+struct PileAvis: View {
+    @EnvironmentObject var m: Moteur
+    let limite: Int
+    var compacte = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(m.avis.prefix(limite)) { a in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.circle").font(.system(size: compacte ? 10 : 11)).foregroundStyle(T.ambre)
+                    Text(a.texte).font(T.police(compacte ? 10 : 11)).foregroundStyle(T.ambre)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Button { m.retirerAvis(a) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
+                        .buttonStyle(.plain).foregroundStyle(T.tresDoux).help(L.t("Fermer ce message", "Dismiss this message"))
+                }
+            }
+            if m.avis.count > limite || m.avis.count > 1 {
+                HStack(spacing: 10) {
+                    if m.avis.count > limite {
+                        Text(L.t("+ \(m.avis.count - limite) autre\(m.avis.count - limite > 1 ? "s" : "")", "+ \(m.avis.count - limite) more"))
+                            .font(T.police(10)).foregroundStyle(T.tresDoux)
+                    }
+                    Button(L.t("Tout effacer", "Clear all")) { m.avis.removeAll() }
+                        .buttonStyle(.plain).font(T.police(10, .semibold)).foregroundStyle(T.tresDoux)
+                }
+            }
+        }
+        .padding(.horizontal, compacte ? 0 : 4)
     }
 }

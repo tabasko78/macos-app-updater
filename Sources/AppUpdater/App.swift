@@ -79,7 +79,8 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func majIcone() {
-        let n = moteur.aMettreAJour.count
+        // Pendant un lot, le même décompte que le bouton (« Mise à jour 15 sur 24 » : 10 restantes), pas à la traîne.
+        let n = moteur.lot.map { $0.total - $0.fait } ?? moteur.aMettreAJour.count
         // Des mises à jour : la flèche et leur nombre. Tout est à jour (vérification faite) : une coche.
         // Image « modèle » : blanche sur une barre des menus sombre, noire sur une claire.
         let symbole = n > 0 ? "arrow.down.app.fill" : (moteur.derniereVerif != nil && !moteur.enCours ? "checkmark.circle" : "arrow.down.app")
