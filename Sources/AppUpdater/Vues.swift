@@ -468,6 +468,7 @@ struct JournalVue: View {
                         HStack {
                             Text(Self.format.string(from: e.date)).foregroundStyle(T.doux).frame(width: 130, alignment: .leading)
                             Text(e.nom).font(T.police(12, .semibold)).foregroundStyle(T.texte).lineLimit(1)
+                                .strikethrough(e.quoi == "Désinstallée" || e.quoi == "Disparue", color: T.texte)   // app supprimée : nom barré
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             HStack(spacing: 4) {
                                 Text(e.avant ?? "–").foregroundStyle(T.versionActuelle)
