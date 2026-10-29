@@ -679,7 +679,7 @@ struct ReglagesVue: View {
                         }
                     }
                 }
-                rubrique(L.t("Avancé", "Advanced")) {
+                rubrique(L.t("Options avancées", "Advanced options")) {
                     ligne(L.t("Apps ignorées", "Ignored apps"), L.t("Elles se retrouvent dans le filtre « Ignorées » de l'onglet Applications, un clic droit les fait suivre à nouveau.", "They are listed under “Ignored” in the Apps tab; right-click to track them again.")) {
                         Text("\(m.apps.filter { m.estIgnoree($0) }.count)").font(T.police(14, .bold)).foregroundStyle(T.accent)
                     }
@@ -733,7 +733,7 @@ struct ReglagesVue: View {
     /// Une rubrique : petit titre, puis ses lignes dans un même cadre, séparées d'un filet.
     private func rubrique<C: View>(_ titre: String, @ViewBuilder _ lignes: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(titre.uppercased()).font(T.police(10, .semibold)).foregroundStyle(T.tresDoux).padding(.leading, 4)
+            Text(titre.uppercased(with: L.locale)).font(T.police(11, .semibold)).foregroundStyle(T.tresDoux).padding(.leading, 4)
             _VariadicView.Tree(Filets()) { lignes() }
                 .verre(12)
         }
