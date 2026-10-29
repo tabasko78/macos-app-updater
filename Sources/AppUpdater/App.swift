@@ -64,7 +64,17 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func appliquerAffichage() {
         let a = moteur.affichage
         icone.isVisible = a.menu
-        NSApp.setActivationPolicy(a.dock ? .regular : .accessory)
+        let voulue: NSApplication.ActivationPolicy = a.dock ? .regular : .accessory
+        if NSApp.activationPolicy() != voulue {
+            NSApp.setActivationPolicy(voulue)
+            // Changer de politique fait passer l'app à l'arrière-plan : on ramène la fenêtre devant juste après.
+            if let f = fenetre, f.isVisible {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    f.makeKeyAndOrderFront(nil)
+                }
+            }
+        }
         majIcone()
     }
 
