@@ -70,7 +70,7 @@ struct LigneApp: View {
                 Spacer(minLength: 8)
                 if !compacte {
                     Text(usage).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
-                        .frame(width: 170, alignment: .leading)
+                        .frame(width: 150, alignment: .leading)
                 }
                 versions
                 if !compacte { pastille }
@@ -116,6 +116,7 @@ struct LigneApp: View {
         }
         .font(T.police(compacte ? 11 : 12, .medium))
         .lineLimit(1)
+        .frame(width: compacte ? nil : 160, alignment: .trailing)
     }
 
     private var pastille: some View {
@@ -252,7 +253,7 @@ enum Tri: CaseIterable, Identifiable {
 
 final class EtatFenetre: ObservableObject {
     @Published var onglet: Onglet = CommandLine.arguments.contains("--reglages") ? .reglages : .applications   // --reglages : pour vérifier la page
-    @Published var filtre: Filtre = .aMettreAJour
+    @Published var filtre: Filtre = CommandLine.arguments.contains("--toutes") ? .toutes : .aMettreAJour   // --toutes : pour vérifier la page
     @Published var recherche = ""
     @Published var sortieOuverte = false
     @Published var survolDepot = false
@@ -965,6 +966,13 @@ struct PanneauMenu: View {
 
 // MARK: - Liste qui prend la hauteur de son contenu, et défile au-delà de 30 lignes
 
+/// Hauteur d'une liste défilante, distincte de celle de la fenêtre : avec une seule clé, la hauteur de TOUTE la
+/// liste (109 apps) remontait jusqu'à la fenêtre, qui s'agrandissait au-delà de la liste plafonnée (vide en bas).
+struct HauteurListeCle: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 struct HauteurCle: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
@@ -983,9 +991,9 @@ struct ListeAjustee<Contenu: View>: View {
     var body: some View {
         ScrollView {
             contenu()
-                .background(GeometryReader { g in Color.clear.preference(key: HauteurCle.self, value: g.size.height) })
+                .background(GeometryReader { g in Color.clear.preference(key: HauteurListeCle.self, value: g.size.height) })
         }
-        .onPreferenceChange(HauteurCle.self) { h in mesure.hauteur = h }
+        .onPreferenceChange(HauteurListeCle.self) { h in mesure.hauteur = h }
         .frame(height: plafond)
     }
 
