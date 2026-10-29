@@ -239,7 +239,7 @@ enum Tri: CaseIterable, Identifiable {
 }
 
 final class EtatFenetre: ObservableObject {
-    @Published var onglet: Onglet = .applications
+    @Published var onglet: Onglet = CommandLine.arguments.contains("--reglages") ? .reglages : .applications   // --reglages : pour vérifier la page
     @Published var filtre: Filtre = .aMettreAJour
     @Published var recherche = ""
     @Published var sortieOuverte = false
@@ -582,47 +582,54 @@ struct ReglagesVue: View {
     @StateObject private var etat = EtatReglages()
 
     var body: some View {
-        ListeAjustee(lignes: 7) {
-            VStack(alignment: .leading, spacing: 12) {
-                carte(L.t("Thème", "Theme"), L.t("Bleu nuit, Violine, ou Graphite : le gris presque noir des apps en mode sombre.", "Midnight blue, Violet, or Graphite: the near-black grey of dark-mode apps.")) {
-                    HStack(spacing: 6) {
-                        ForEach(ThemeNom.allCases) { t in
-                            Button(t.libelle) { m.theme = t }.buttonStyle(Puce(active: m.theme == t))
-                        }
+        ListeAjustee(lignes: 14, maxLignes: 40) {
+            VStack(alignment: .leading, spacing: 14) {
+                rubrique(L.t("Apparence", "Appearance")) {
+                    ligne(L.t("Thème", "Theme"), L.t("Bleu nuit, Violine, ou Graphite : le gris presque noir des apps en mode sombre.", "Midnight blue, Violet, or Graphite: the near-black grey of dark-mode apps.")) {
+                        Deroulant(valeur: $m.theme, options: ThemeNom.allCases.map { ($0, $0.libelle) })
+                    }
+                    ligne(L.t("Langue", "Language"), L.t("Automatique : celle du système.", "Automatic: the system language.")) {
+                        Deroulant(valeur: $m.langue, options: Langue.allCases.map { ($0, $0.libelle) })
+                    }
+                    ligne(L.t("Afficher l'app dans", "Show the app in"), L.t("Dans le Dock, l'icône porte le nombre de mises à jour, et un clic ouvre la fenêtre.", "In the Dock, the icon shows the number of updates, and a click opens the window.")) {
+                        Deroulant(valeur: $m.affichage, options: Affichage.allCases.map { ($0, $0.libelle) })
                     }
                 }
-                carte(L.t("Langue", "Language"), L.t("Automatique : celle du système.", "Automatic: the system language.")) {
-                    HStack(spacing: 6) {
-                        ForEach(Langue.allCases) { l in
-                            Button(l.libelle) { m.langue = l }.buttonStyle(Puce(active: m.langue == l))
-                        }
+                rubrique(L.t("Vérification", "Checking")) {
+                    ligne(L.t("Vérification automatique", "Automatic check"), L.t("En plus de celle faite à chaque lancement.", "On top of the check made at every launch.")) {
+                        Deroulant(valeur: $m.frequence, options: [1, 3, 6, 12, 24].map { h in
+                            (h, h == 24 ? L.t("1 fois par jour", "once a day") : L.t("toutes les \(h) h", "every \(h) h"))
+                        })
+                    }
+                    ligne(L.t("Délai avant de proposer une version", "Delay before offering a version"), L.t("Une nouvelle version n'est proposée qu'une fois « éprouvée » : sortie depuis ce nombre de jours.", "A new version is only offered once “proven”: out for this many days.")) {
+                        Deroulant(valeur: $m.delai, options: [0, 1, 7, 15].map { j in (j, j == 0 ? L.t("Aucun", "None") : L.t("\(j) jours", "\(j) days")) })
+                    }
+                    ligne(L.t("Notifications", "Notifications"), L.t("Une notification macOS quand une nouvelle mise à jour apparaît.", "A macOS notification when a new update shows up.")) {
+                        Toggle("", isOn: $m.notifications).toggleStyle(Interrupteur()).labelsHidden()
                     }
                 }
-                carte(L.t("Vérification automatique", "Automatic check"), L.t("En plus de celle faite à chaque lancement.", "On top of the check made at every launch.")) {
-                    HStack(spacing: 6) {
-                        ForEach([1, 3, 6, 12, 24], id: \.self) { h in
-                            Button(h == 24 ? L.t("1 fois par jour", "once a day") : L.t("toutes les \(h) h", "every \(h) h")) { m.frequence = h }
-                                .buttonStyle(Puce(active: m.frequence == h))
-                        }
+                rubrique(L.t("Mises à jour", "Updates")) {
+                    ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les apps proposées s'installent seules. Jamais les apps ouvertes, celles qui demandent ton mot de passe, ni les versions majeures.", "At every check, offered updates install by themselves. Never open apps, apps that need your password, or major versions.")) {
+                        Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
+                    }
+                    ligne(L.t("Fermer les apps sans demander", "Quit apps without asking"), L.t("Avant de mettre à jour une app ouverte, elle est fermée sans question (puis rouverte).", "Before updating an open app, it is quit without asking (then reopened).")) {
+                        Toggle("", isOn: Binding(get: { UserDefaults.standard.bool(forKey: "fermerSansDemander") },
+                                                 set: { UserDefaults.standard.set($0, forKey: "fermerSansDemander"); m.objectWillChange.send() }))
+                            .toggleStyle(Interrupteur()).labelsHidden()
                     }
                 }
-                carte(L.t("Délai avant de proposer une version", "Delay before offering a version"),
-                      L.t("Une nouvelle version n'est proposée qu'une fois « éprouvée » : sortie depuis ce nombre de jours.", "A new version is only offered once “proven”: out for this many days.")) {
-                    HStack(spacing: 6) {
-                        ForEach([0, 1, 7, 15], id: \.self) { j in
-                            Button(j == 0 ? L.t("Aucun", "None") : L.t("\(j) j", "\(j) d")) { m.delai = j }.buttonStyle(Puce(active: m.delai == j))
-                        }
+                rubrique(L.t("Démarrage", "Startup")) {
+                    ligne(L.t("Ouvrir à la connexion", "Open at login"), L.t("L'app se lance seule à l'ouverture de ta session.", "The app starts by itself when you log in.")) {
+                        Toggle("", isOn: Binding(get: { m.lancementSession }, set: { m.basculerLancementSession($0) }))
+                            .toggleStyle(Interrupteur()).labelsHidden()
                     }
                 }
-                carte(L.t("Mises à jour automatiques", "Automatic updates"),
-                      L.t("À chaque vérification, les apps proposées s'installent seules. Jamais les apps ouvertes, celles qui demandent ton mot de passe, ni les versions majeures.", "At every check, offered updates install by themselves. Never open apps, apps that need your password, or major versions.")) {
-                    Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
-                }
-                carte(L.t("Résumés des nouveautés (Gemini)", "What's new summaries (Gemini)"),
-                      L.t("Gemini résume en deux phrases les notes de version des mises à jour proposées, avec ta propre clé d'API (aistudio.google.com). Seules les notes de version lui sont envoyées.", "Gemini summarizes the release notes of offered updates in two sentences, with your own API key (aistudio.google.com). Only the release notes are sent.")) {
-                    VStack(alignment: .trailing, spacing: 6) {
+                rubrique(L.t("Résumés des nouveautés", "What's new summaries")) {
+                    ligne("Gemini", L.t("Gemini résume en deux phrases les notes de version des mises à jour proposées, avec ta propre clé d'API (aistudio.google.com). Seules les notes de version lui sont envoyées.", "Gemini summarizes the release notes of offered updates in two sentences, with your own API key (aistudio.google.com). Only the release notes are sent.")) {
                         Toggle("", isOn: $m.gemini).toggleStyle(Interrupteur()).labelsHidden()
-                        if m.gemini {
+                    }
+                    if m.gemini {
+                        ligne(L.t("Clé d'API", "API key"), L.t("Rangée sur ce Mac, dans le dossier de l'app, lisible par ton seul compte.", "Stored on this Mac, in the app folder, readable by your account only.")) {
                             HStack(spacing: 6) {
                                 SecureField(L.t("Clé d'API", "API key"), text: $etat.cleGemini)
                                     .textFieldStyle(.plain).font(T.police(12)).foregroundStyle(T.texte)
@@ -637,50 +644,77 @@ struct ReglagesVue: View {
                         }
                     }
                 }
-                carte(L.t("Afficher l'app dans", "Show the app in"), L.t("Dans le Dock, l'icône porte le nombre de mises à jour, et un clic ouvre la fenêtre.", "In the Dock, the icon shows the number of updates, and a click opens the window.")) {
-                    HStack(spacing: 6) {
-                        ForEach(Affichage.allCases) { a in
-                            Button(a.libelle) { m.affichage = a }.buttonStyle(Puce(active: m.affichage == a))
-                        }
+                rubrique(L.t("Avancé", "Advanced")) {
+                    ligne(L.t("Apps ignorées", "Ignored apps"), L.t("Elles se retrouvent dans le filtre « Ignorées » de l'onglet Applications, un clic droit les fait suivre à nouveau.", "They are listed under “Ignored” in the Apps tab; right-click to track them again.")) {
+                        Text("\(m.apps.filter { m.estIgnoree($0) }.count)").font(T.police(14, .bold)).foregroundStyle(T.accent)
                     }
-                }
-                carte(L.t("Fermer les apps sans demander", "Quit apps without asking"), L.t("Avant de mettre à jour une app ouverte, elle est fermée sans question (puis rouverte).", "Before updating an open app, it is quit without asking (then reopened).")) {
-                    Toggle("", isOn: Binding(get: { UserDefaults.standard.bool(forKey: "fermerSansDemander") },
-                                             set: { UserDefaults.standard.set($0, forKey: "fermerSansDemander"); m.objectWillChange.send() }))
-                        .toggleStyle(Interrupteur()).labelsHidden()
-                }
-                carte(L.t("Notifications", "Notifications"), L.t("Une notification macOS quand une nouvelle mise à jour apparaît.", "A macOS notification when a new update shows up.")) {
-                    Toggle("", isOn: $m.notifications).toggleStyle(Interrupteur()).labelsHidden()
-                }
-                carte(L.t("Ouvrir à la connexion", "Open at login"), L.t("L'app se lance seule à l'ouverture de ta session.", "The app starts by itself when you log in.")) {
-                    Toggle("", isOn: Binding(get: { m.lancementSession }, set: { m.basculerLancementSession($0) }))
-                        .toggleStyle(Interrupteur()).labelsHidden()
-                }
-                carte(L.t("Apps ignorées", "Ignored apps"), L.t("Elles se retrouvent dans le filtre « Ignorées » de l'onglet Applications, un clic droit les fait suivre à nouveau.", "They are listed under “Ignored” in the Apps tab; right-click to track them again.")) {
-                    Text("\(m.apps.filter { m.estIgnoree($0) }.count)").font(T.police(18, .bold)).foregroundStyle(T.accent)
-                }
-                carte(L.t("Règles", "Rules"), L.t("Pour une app sans autre source : {\"bundleId\": \"…\", \"depot\": \"proprietaire/depot\"} pour GitHub, ou {\"bundleId\": \"…\", \"json\": \"adresse\", \"chemin\": \"mac.version\"} pour une adresse de l'éditeur.", "For an app with no other source: {\"bundleId\": \"…\", \"depot\": \"owner/repo\"} for GitHub, or {\"bundleId\": \"…\", \"json\": \"url\", \"chemin\": \"mac.version\"} for a developer URL.")) {
-                    Button(L.t("Afficher le fichier", "Show file")) { NSWorkspace.shared.activateFileViewerSelecting([Regles.fichier]) }
-                        .buttonStyle(BoutonDiscret())
-                }
-                carte(L.t("Données de l'app", "App data"), L.t("Journal, versions vues, règles.", "Log, seen versions, rules.")) {
-                    Button(L.t("Ouvrir le dossier", "Open folder")) { NSWorkspace.shared.open(Dossiers.support) }.buttonStyle(BoutonDiscret())
+                    ligne(L.t("Règles", "Rules"), L.t("Pour une app sans autre source : {\"bundleId\": \"…\", \"depot\": \"proprietaire/depot\"} pour GitHub, ou {\"bundleId\": \"…\", \"json\": \"adresse\", \"chemin\": \"mac.version\"} pour une adresse de l'éditeur.", "For an app with no other source: {\"bundleId\": \"…\", \"depot\": \"owner/repo\"} for GitHub, or {\"bundleId\": \"…\", \"json\": \"url\", \"chemin\": \"mac.version\"} for a developer URL.")) {
+                        Button(L.t("Afficher le fichier", "Show file")) { NSWorkspace.shared.activateFileViewerSelecting([Regles.fichier]) }
+                            .buttonStyle(BoutonDiscret())
+                    }
+                    ligne(L.t("Données de l'app", "App data"), L.t("Journal, versions vues, règles.", "Log, seen versions, rules.")) {
+                        Button(L.t("Ouvrir le dossier", "Open folder")) { NSWorkspace.shared.open(Dossiers.support) }.buttonStyle(BoutonDiscret())
+                    }
                 }
             }
         }
     }
 
-    private func carte<C: View>(_ titre: String, _ detail: String, @ViewBuilder _ contenu: () -> C) -> some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(titre).font(T.police(13, .semibold)).foregroundStyle(T.texte)
-                Text(detail).font(T.police(11)).foregroundStyle(T.doux).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            contenu()
+    /// Une rubrique : petit titre, puis ses lignes dans un même cadre, séparées d'un filet.
+    private func rubrique<C: View>(_ titre: String, @ViewBuilder _ lignes: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(titre.uppercased()).font(T.police(10, .semibold)).foregroundStyle(T.tresDoux).padding(.leading, 4)
+            _VariadicView.Tree(Filets()) { lignes() }
+                .verre(12)
         }
-        .padding(14)
-        .verre(12)
+    }
+
+    /// Une ligne : le nom à gauche (l'explication au survol de ⓘ), le contrôle à droite.
+    private func ligne<C: View>(_ titre: String, _ aide: String, @ViewBuilder _ controle: () -> C) -> some View {
+        HStack(spacing: 8) {
+            Text(titre).font(T.police(13, .medium)).foregroundStyle(T.texte)
+            Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(T.tresDoux).help(aide)
+            Spacer(minLength: 12)
+            controle()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 9)
+    }
+}
+
+/// Les lignes d'une rubrique, séparées par un filet fin.
+private struct Filets: _VariadicView_MultiViewRoot {
+    func body(children: _VariadicView.Children) -> some View {
+        VStack(spacing: 0) {
+            ForEach(children) { enfant in
+                enfant
+                if enfant.id != children.last?.id { Rectangle().fill(T.trait).frame(height: 0.5).padding(.horizontal, 14) }
+            }
+        }
+    }
+}
+
+/// Menu déroulant dans le style de l'app : la valeur choisie et un chevron ; un clic ouvre la liste.
+struct Deroulant<V: Hashable>: View {
+    @Binding var valeur: V
+    let options: [(V, String)]
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.0) { o in
+                Button { valeur = o.0 } label: {
+                    if o.0 == valeur { Label(o.1, systemImage: "checkmark") } else { Text(o.1) }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(options.first { $0.0 == valeur }?.1 ?? "")
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(BoutonDiscret())
+        .fixedSize()
     }
 }
 
