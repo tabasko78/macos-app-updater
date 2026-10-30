@@ -643,8 +643,8 @@ struct ReglagesVue: View {
             .frame(maxWidth: .infinity, alignment: .top)
             VStack(alignment: .leading, spacing: 14) {
                 rubrique(L.t("Mises à jour", "Updates")) {
-                    ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les mises à jour s'installent toutes seules (sauf les applications qui exigent d'être fermées, qui nécessitent un mot de passe, ou les mises à jour majeures qui pourraient exiger une nouvelle licence).", "At every check, updates install by themselves (except apps that must be quit, that need a password, or major updates that could require a new license).")) {
-                        Toggle("", isOn: $m.automatique).toggleStyle(Interrupteur()).labelsHidden()
+                    ligne(L.t("Mises à jour automatiques", "Automatic updates"), L.t("À chaque vérification, les mises à jour s'installent toutes seules. « Toutes » ferme les apps ouvertes puis les rouvre ; une app qui refuse de se fermer (document non enregistré) est laissée pour plus tard, rien n'est jamais forcé. Restent toujours exclues les mises à jour qui demandent un mot de passe, et les versions majeures qui pourraient exiger une nouvelle licence.", "At every check, updates install by themselves. “All” quits open apps then reopens them; an app that refuses to quit (unsaved document) is left for later, nothing is ever forced. Updates that need a password, and major versions that could require a new license, are always left out.")) {
+                        Deroulant(valeur: $m.majAuto, options: MajAuto.allCases.map { ($0, $0.libelle) })
                     }
                     ligne(L.t("Retenir le mot de passe de session", "Remember the login password"),
                           L.t("Certaines mises à jour (paquets, apps installées au nom du système) demandent ton mot de passe. « Toujours » le range dans le trousseau de macOS : il n'est plus jamais redemandé.",

@@ -46,6 +46,19 @@ enum Affichage: String, CaseIterable, Identifiable {
     var dock: Bool { self != .menu }
 }
 
+/// Réglages > « Mises à jour automatiques ».
+enum MajAuto: String, CaseIterable, Identifiable {
+    case non, fermees, toutes
+    var id: String { rawValue }
+    var libelle: String {
+        switch self {
+        case .non: L.t("Non", "Off")
+        case .fermees: L.t("Apps fermées seulement", "Closed apps only")
+        case .toutes: L.t("Toutes (ferme puis rouvre)", "All (quit then reopen)")
+        }
+    }
+}
+
 enum L {
     static var choix: Langue {
         UserDefaults.standard.string(forKey: "langue").flatMap(Langue.init(rawValue:)) ?? ConfigApp.langueParDefaut

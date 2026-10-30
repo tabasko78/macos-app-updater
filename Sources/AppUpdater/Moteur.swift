@@ -106,7 +106,8 @@ final class Moteur: ObservableObject {
     }
     var appliquerAffichage: (() -> Void)?                // posé par le Delegue, qui tient l'icône et le Dock
     @Published var delai: Int { didSet { reglages.set(delai, forKey: "delai") } }             // jours avant de proposer une version
-    @Published var automatique: Bool { didSet { reglages.set(automatique, forKey: "automatique") } }
+    @Published var majAuto: MajAuto { didSet { reglages.set(majAuto.rawValue, forKey: "majAuto") } }
+    private var sansTemoin = false   // mise à jour automatique en cours : aucune question, rien de forcé
     @Published var voirSortieBrew: Bool { didSet { reglages.set(voirSortieBrew, forKey: "voirSortieBrew") } }
     @Published var gemini: Bool { didSet { reglages.set(gemini, forKey: "gemini"); Task { await resumer() } } }
     private var premieresVues: [String: Date] = Historique.premieresVues()   // bundle id@version → vue la 1re fois
@@ -134,7 +135,8 @@ final class Moteur: ObservableObject {
         notifications = reglages.object(forKey: "notifications") as? Bool ?? true
         affichage = reglages.string(forKey: "affichage").flatMap(Affichage.init(rawValue:)) ?? .menu
         delai = reglages.object(forKey: "delai") as? Int ?? 0
-        automatique = reglages.bool(forKey: "automatique")
+        // L'ancien interrupteur « automatique » ne touchait qu'aux apps fermées.
+        majAuto = reglages.string(forKey: "majAuto").flatMap(MajAuto.init(rawValue:)) ?? (reglages.bool(forKey: "automatique") ? .fermees : .non)
         voirSortieBrew = reglages.bool(forKey: "voirSortieBrew")
         gemini = reglages.bool(forKey: "gemini")
         planifier()
@@ -225,7 +227,7 @@ final class Moteur: ObservableObject {
         notifier()
         mesurerTailles()
         await verifierApp()
-        if automatique { await mettreAJourAutomatiquement() }
+        if majAuto != .non { await mettreAJourAutomatiquement() }
         await resumer()
     }
 
@@ -238,8 +240,9 @@ final class Moteur: ObservableObject {
 
     // MARK: - Mises à jour automatiques
 
-    /// Réglage « Mises à jour automatiques » : les apps proposées s'installent seules, sauf celles qui sont
-    /// ouvertes, celles qui demanderaient le mot de passe (paquets, apps au nom du système) et les versions majeures.
+    /// Réglage « Mises à jour automatiques » : les apps proposées s'installent seules, sauf celles qui demanderaient
+    /// le mot de passe (paquets, apps au nom du système) et les versions majeures. « Apps fermées seulement » laisse
+    /// aussi les apps ouvertes ; « Toutes » les ferme puis les rouvre, et passe celles qui refusent de se fermer.
     private func mettreAJourAutomatiquement() async {
         let candidates = aMettreAJour.filter { a in
             guard !a.majeure else { return false }
@@ -250,11 +253,12 @@ final class Moteur: ObservableObject {
             let ouverte = !NSRunningApplication.runningApplications(withBundleIdentifier: a.bundleId)
                 .filter { $0.bundleURL?.path == a.chemin }.isEmpty
             let proprietaire = (try? FileManager.default.attributesOfItem(atPath: a.chemin))?[.ownerAccountName] as? String
-            return !ouverte && proprietaire == NSUserName()
+            return (majAuto == .toutes || !ouverte) && proprietaire == NSUserName()
         }
         guard !candidates.isEmpty, lot == nil else { return }
         MotDePasse.partage.silencieux = true   // jamais de fenêtre de mot de passe sans quelqu'un devant
-        defer { MotDePasse.partage.silencieux = false }
+        sansTemoin = true
+        defer { MotDePasse.partage.silencieux = false; sansTemoin = false }
         let avant = Set(aMettreAJour.map(\.id))
         await enLot(candidates)
         let faites = candidates.filter { c in avant.contains(c.id) && !aMettreAJour.contains { $0.id == c.id } }
@@ -549,6 +553,16 @@ final class Moteur: ObservableObject {
         let ouvertes = NSRunningApplication.runningApplications(withBundleIdentifier: a.bundleId)
             .filter { $0.bundleURL?.path == a.chemin }
         guard !ouvertes.isEmpty else { return false }
+        if sansTemoin {
+            // Personne devant l'écran : fermeture polie seulement. Une app qui attend une confirmation
+            // (document non enregistré) garde sa fenêtre et attend la prochaine fois, rien n'est forcé.
+            ouvertes.forEach { $0.terminate() }
+            for _ in 0..<30 where ouvertes.contains(where: { !$0.isTerminated }) { try? await Task.sleep(for: .milliseconds(500)) }
+            if !ouvertes.contains(where: { !$0.isTerminated }) { return true }
+            message = L.t("\(a.nom) ne s'est pas fermée (document non enregistré ?) : mise à jour laissée pour plus tard",
+                          "\(a.nom) did not quit (unsaved document?): update left for later")
+            return nil
+        }
         let pourquoi = geste ?? L.t("Pour la mettre à jour, il faut la fermer. Elle sera rouverte ensuite.",
                                     "It has to quit to be updated. It will be reopened afterwards.")
         if !reglages.bool(forKey: "fermerSansDemander") {
