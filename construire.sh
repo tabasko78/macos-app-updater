@@ -53,6 +53,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/universel/AppUpdater "$APP/Contents/MacOS/"
 cp Ressources/Info.plist "$APP/Contents/"
 cp "$tmp/AppIcon.icns" "$APP/Contents/Resources/"
+# Montserrat, embedded (SIL Open Font License, see Polices/OFL.txt): the app looks the same on a Mac without it.
+cp -R Ressources/Polices "$APP/Contents/Resources/"
 rm -rf "$tmp"
 if [[ -n "$PERSO" ]]; then
     # Personal copy: its own identifier and name (so its settings are kept), and its defaults (theme, language…).

@@ -55,6 +55,7 @@ enum Demarrage {
             Task.detached { exit(await Homebrew.construireIndex(vers: chemin)) }
             dispatchMain()
         }
+        T.chargerPolices()
         AppUpdaterApp.main()
     }
 

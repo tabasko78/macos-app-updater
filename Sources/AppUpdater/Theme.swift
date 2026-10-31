@@ -71,6 +71,15 @@ enum T {
 
     static func police(_ t: CGFloat, _ w: Font.Weight = .regular) -> Font { .custom("Montserrat", size: t).weight(w) }
 
+    /// Montserrat voyage avec l'app (Contents/Resources/Polices) : un Mac qui ne l'avait pas installée affichait
+    /// la police du système, aux proportions différentes, et les textes se décalaient dans les boutons.
+    static func chargerPolices() {
+        guard let dossier = Bundle.main.resourceURL?.appendingPathComponent("Polices"),
+              let polices = try? FileManager.default.contentsOfDirectory(at: dossier, includingPropertiesForKeys: nil)
+                .filter({ $0.pathExtension == "ttf" }), !polices.isEmpty else { return }
+        CTFontManagerRegisterFontURLs(polices as CFArray, .process, true, nil)
+    }
+
     static func hex(_ s: Source) -> UInt32 {
         switch s {
         case .homebrew: p.texte

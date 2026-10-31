@@ -52,4 +52,4 @@ No account, no analytics. The app only contacts the sources above to read versio
 
 ## License
 
-MIT
+MIT. The bundled Montserrat font is under the SIL Open Font License 1.1 (`Ressources/Polices/OFL.txt`).
