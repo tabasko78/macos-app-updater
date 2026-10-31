@@ -84,7 +84,9 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Des mises à jour : la flèche et leur nombre. Tout est à jour (vérification faite) : une coche.
         // Image « modèle » : blanche sur une barre des menus sombre, noire sur une claire.
         let symbole = n > 0 ? "arrow.down.app.fill" : (moteur.derniereVerif != nil && !moteur.enCours ? "checkmark.circle" : "arrow.down.app")
-        let image = NSImage(systemSymbolName: symbole, accessibilityDescription: L.t("Mises à jour", "App Updater"))
+        // 17 points, comme l'icône de macOS Folder Sync : à la taille par défaut (13), elle paraissait plus petite que ses voisines.
+        let image = NSImage(systemSymbolName: symbole, accessibilityDescription: L.t("Mises à jour", "App Updater"))?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 17, weight: .medium))
         image?.isTemplate = true
         icone.button?.image = image
         icone.button?.title = n > 0 ? " \(n)" : ""
