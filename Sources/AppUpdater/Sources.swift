@@ -288,7 +288,11 @@ enum Regles {
         var json: String? = nil
         var chemin: String? = nil
         var telechargement: String? = nil
+        var telechargementIntel: String? = nil   // lien propre aux Mac Intel quand l'éditeur en publie deux
         var page: String? = nil
+
+        /// Le lien à suivre sur ce Mac.
+        var lienIci: String? { CeMac.puceApple ? telechargement : (telechargementIntel ?? telechargement) }
     }
 
     struct Publication: Sendable {
@@ -311,7 +315,7 @@ enum Regles {
     /// système de mise à jour interroge.
     static let integrees: [Regle] = [
         Regle(bundleId: "com.mobeesoft.vidjuice", json: "https://file.vidjuice.com/update.json",
-              chemin: "mac.version", telechargement: "mac.arm64url", page: "https://www.vidjuice.com/"),
+              chemin: "mac.version", telechargement: "mac.arm64url", telechargementIntel: "mac.url", page: "https://www.vidjuice.com/"),
         Regle(bundleId: "com.pcloud.pcloud.macos", json: "https://api.pcloud.com/getlastversion?os=MAC",
               chemin: "versionstr", page: "https://www.pcloud.com/download-free-online-cloud-file-storage.html"),
     ]
@@ -354,16 +358,23 @@ enum Regles {
             let t = String(decoding: data, as: UTF8.self)
             let lignes = t.split(separator: "\n")
             guard let l = lignes.first(where: { $0.hasPrefix("version:") }) else { throw ErreurSource(L.t("version introuvable", "version not found")) }
-            // « path: Signal-8.33.0.dmg » : le fichier, à côté du .yml
-            let fichier = lignes.first(where: { $0.hasPrefix("path:") }).map { $0.dropFirst(5).trimmingCharacters(in: .whitespaces) }
+            // « - url: Signal-8.33.0-arm64.dmg » pour chaque fichier, « path: » pour l'ancien format : le bon pour ce Mac,
+            // à côté du .yml.
+            let noms = lignes.compactMap { l -> String? in
+                let x = l.trimmingCharacters(in: .whitespaces)
+                for p in ["- url:", "path:"] where x.hasPrefix(p) { return x.dropFirst(p.count).trimmingCharacters(in: .whitespaces) }
+                return nil
+            }
+            let fichier = noms.compactMap { n in noteFichier(n).map { ($0, n) } }.max { $0.0 < $1.0 }?.1
             let lien = fichier.flatMap { URL(string: $0, relativeTo: u)?.absoluteURL }
             return Publication(version: l.dropFirst(8).trimmingCharacters(in: .whitespaces), url: lien ?? page, source: .editeur,
                                fichier: installable(lien))
         }
         let racine = try JSONSerialization.jsonObject(with: data)
         guard let v = valeur(racine, r.chemin ?? "version") else { throw ErreurSource(L.t("version introuvable, règle à revoir", "version not found, rule to review")) }
-        let lien = r.telechargement.flatMap { valeur(racine, $0) }.flatMap(URL.init(string:))
-        return Publication(version: v, url: page ?? lien, source: .editeur, fichier: installable(lien))
+        let lien = r.lienIci.flatMap { valeur(racine, $0) }.flatMap(URL.init(string:))
+        // Un lien marqué pour l'autre processeur ne s'installe pas d'ici : le bouton ouvre alors la page.
+        return Publication(version: v, url: page ?? lien, source: .editeur, fichier: installable(lien).flatMap { noteFichier($0.absoluteString) != nil ? $0 : nil })
     }
 
     private static func valeur(_ racine: Any, _ chemin: String) -> String? {
@@ -401,21 +412,27 @@ enum Regles {
         return p
     }
 
-    /// Parmi les fichiers d'une publication, celui pour un MacBook à puce Apple : .zip de préférence, sinon .dmg ;
-    /// arm64 ou universel plutôt qu'Intel.
+    /// Parmi les fichiers d'une publication, celui pour ce Mac : .zip de préférence, sinon .dmg ; fait pour son processeur
+    /// ou universel. Un fichier marqué pour l'autre processeur n'est jamais pris sur un Mac Intel (il ne s'y ouvrirait pas),
+    /// seulement en dernier recours sur une puce Apple (Rosetta). Le contrôle de l'installation vérifie de toute façon l'app.
     private static func fichierMac(_ fichiers: [[String: Any]]) -> [String: Any]? {
-        func note(_ n: String) -> Int? {
-            let x = n.lowercased()
-            guard x.hasSuffix(".zip") || x.hasSuffix(".dmg") else { return nil }
-            let autresSystemes = ["win", "linux", "windows"].contains { x.contains($0) }
-            let mac = ["mac", "darwin", "osx", "macos"].contains { x.contains($0) }
-            if autresSystemes && !mac { return nil }
-            let intel = ["x64", "x86", "intel", "amd64"].contains { x.contains($0) }
-            let arm = ["arm64", "aarch64", "universal", "apple"].contains { x.contains($0) }
-            if intel && !arm { return nil }
-            return (arm ? 4 : 0) + (mac ? 2 : 0) + (x.hasSuffix(".zip") ? 1 : 0)
-        }
-        return fichiers.compactMap { f -> (Int, [String: Any])? in (f["name"] as? String).flatMap(note).map { ($0, f) } }
+        fichiers.compactMap { f -> (Int, [String: Any])? in (f["name"] as? String).flatMap(noteFichier).map { ($0, f) } }
             .max { $0.0 < $1.0 }?.1
+    }
+
+    /// Note d'un nom de fichier pour ce Mac, nil s'il ne convient pas.
+    static func noteFichier(_ n: String) -> Int? {
+        let x = ((n.split(separator: "?").first.map(String.init) ?? n) as NSString).lastPathComponent.lowercased()
+        guard x.hasSuffix(".zip") || x.hasSuffix(".dmg") else { return nil }
+        let autresSystemes = ["win", "linux", "windows"].contains { x.contains($0) }
+        let mac = ["mac", "darwin", "osx", "macos"].contains { x.contains($0) }
+        if autresSystemes && !mac { return nil }
+        let universel = x.contains("universal")
+        let intel = ["x64", "x86", "intel", "amd64"].contains { x.contains($0) }
+        let arm = ["arm64", "aarch64", "silicon", "apple", "-m1", "_m1"].contains { x.contains($0) }
+        let pourIci: Bool, pourAutre: Bool
+        if CeMac.puceApple { pourIci = arm && !intel; pourAutre = intel && !arm } else { pourIci = intel && !arm; pourAutre = arm && !intel }
+        if pourAutre && !CeMac.puceApple { return nil }
+        return (pourIci ? 8 : universel ? 6 : pourAutre ? 0 : 4) + (mac ? 2 : 0) + (x.hasSuffix(".zip") ? 1 : 0)
     }
 }

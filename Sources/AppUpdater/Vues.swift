@@ -41,6 +41,14 @@ struct LigneApp: View {
         return L.t("Utilisée ", "Used ") + f.localizedString(for: u, relativeTo: Date())
     }
 
+    /// Colonne « Dernière mise à jour 05/11/26 ».
+    private var majTexte: String {
+        guard let d = m.derniereMaj(app) else { return "–" }
+        let f = DateFormatter()
+        f.dateFormat = "dd/MM/yy"
+        return L.t("Dernière mise à jour ", "Last updated ") + f.string(from: d)
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
@@ -60,20 +68,24 @@ struct LigneApp: View {
                     if !compacte, let e = m.echecs[app.id] {
                         Text(L.t("Échec : ", "Failed: ") + e).font(T.police(10, .medium)).foregroundStyle(T.framboise).lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
-                    } else if !compacte, let r = app.incompatible ?? app.remarque {
-                        Text(r).font(T.police(10)).foregroundStyle(T.tresDoux).lineLimit(1)
+                    } else if !compacte, let r = app.incompatible ?? (app.tourneIci ? app.remarque : L.t("la version installée ne s'ouvre pas sur ce Mac : ", "the installed version cannot open on this Mac: ") + CeMac.raisonProcesseur) {
+                        Text(r).font(T.police(10)).foregroundStyle(T.tresDoux).lineLimit(3).fixedSize(horizontal: false, vertical: true).help(r)
                     }
                     if !compacte, let r = m.resume(app) {
                         let web = r.hasPrefix("web|")
                         (Text(web ? String(r.dropFirst(4)) : r)
                             + Text(web ? L.t("  · d'après le web", "  · from the web") : "").foregroundColor(T.tresDoux))
-                            .font(T.police(11)).foregroundStyle(T.doux).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            .font(T.police(11)).foregroundStyle(T.doux).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                            .help(web ? String(r.dropFirst(4)) : r)   // le texte entier au survol, même coupé
                     }
                 }
                 Spacer(minLength: 8)
                 if !compacte {
                     Text(usage).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
                         .frame(width: 150, alignment: .leading)
+                    Text(majTexte).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
+                        .frame(width: 168, alignment: .leading)
+                        .help(L.t("Dernière mise à jour ou installation de cette app, faite ici ou ailleurs", "Last update or installation of this app, made here or elsewhere"))
                 }
                 versions
                 if !compacte { pastille }
@@ -89,7 +101,7 @@ struct LigneApp: View {
         .onTapGesture { if cochable { m.basculer(app) } }
         // Carte en cours de mise à jour : liseré de la couleur du thème, pour la distinguer des autres.
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(T.accent.opacity(m.progression[app.id] != nil ? 0.55 : 0), lineWidth: 1))
-        .opacity(m.estIgnoree(app) || app.incompatible != nil ? 0.55 : 1)
+        .opacity(m.estMiseDeCote(app) || app.incompatible != nil ? 0.55 : 1)
         .contextMenu { menu }
     }
 
@@ -119,7 +131,7 @@ struct LigneApp: View {
         }
         .font(T.police(compacte ? 11 : 12, .medium))
         .lineLimit(1)
-        .frame(width: compacte ? nil : 160, alignment: .trailing)
+        .frame(width: compacte ? nil : 150, alignment: compacte ? .trailing : .leading)
     }
 
     private var pastille: some View {
@@ -136,8 +148,11 @@ struct LigneApp: View {
             Image(systemName: "nosign").foregroundStyle(T.tresDoux)
                 .frame(width: largeurBouton, alignment: .trailing)
         } else if app.aJour == false, let j = m.joursRestants(app) {
-            Text(L.t("éprouvée dans \(j) j", "proven in \(j) d")).font(T.police(11)).foregroundStyle(T.tresDoux)
-                .help(L.t("Réglages > Délai avant de proposer une version", "Settings > Delay before offering a version"))
+            let rythme = m.resteRythme(app) == j
+            Text(rythme ? L.t("ignorée encore \(j) j", "ignored for \(j) more d") : L.t("éprouvée dans \(j) j", "proven in \(j) d"))
+                .font(T.police(11)).foregroundStyle(T.tresDoux)
+                .help(rythme ? L.t("Choix mémorisé pour cette app : clic droit > Ignorer pendant…", "Choice remembered for this app: right-click > Ignore for…")
+                             : L.t("Réglages > Délai avant de proposer une version", "Settings > Delay before offering a version"))
                 .frame(width: largeurBouton, alignment: .trailing)
         } else if m.progression[app.id] != nil {
             Text(L.t("en cours", "updating")).font(T.police(11)).foregroundStyle(T.doux).frame(width: largeurBouton, alignment: .trailing)
@@ -183,6 +198,10 @@ struct LigneApp: View {
     @ViewBuilder private var menu: some View {
         if app.aJour == false, app.disponible != nil, !m.estIgnoree(app) {
             Button(L.t("Ignorer la version \(app.disponible!)", "Ignore version \(app.disponible!)")) { m.ignorer(app) }
+        }
+        // Mémorisé pour l'app : chaque mise à jour qui apparaît est ignorée pendant la période. Recliquer le choix coché l'annule.
+        ForEach([(7, L.t("Ignorer pendant une semaine", "Ignore for a week")), (30, L.t("Ignorer pendant un mois", "Ignore for a month"))], id: \.0) { j, t in
+            Toggle(t, isOn: Binding(get: { m.rythmes[app.bundleId] == j }, set: { oui in m.choisirRythme(app, oui ? j : 0) }))
         }
         if m.estIgnoree(app) {
             Button(L.t("Suivre à nouveau", "Track again")) { m.neplusIgnorer(app) }
@@ -289,7 +308,7 @@ struct FenetreListe: View {
                     .overlay(Text(L.t("Dépose une app ici pour la désinstaller", "Drop an app here to uninstall it")).font(T.police(16, .semibold)).foregroundStyle(T.rose))
             }
         }
-        .frame(minWidth: 820, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)   // la largeur minimale est celle de la fenêtre (App.swift)
         .preferredColorScheme(.dark)
         .id("\(m.theme.rawValue)-\(m.langue.rawValue)")
 
@@ -364,7 +383,7 @@ struct FenetreListe: View {
         case .aMettreAJour: m.aMettreAJour + m.enAttente + m.incompatibles
         case .toutes: m.apps
         case .sansSource: m.apps.filter { $0.source == .aucune && !m.estIgnoree($0) }
-        case .ignorees: m.apps.filter { m.estIgnoree($0) }
+        case .ignorees: m.apps.filter { m.estMiseDeCote($0) }
         }
     }
 
@@ -703,7 +722,7 @@ struct ReglagesVue: View {
                         Toggle("", isOn: $m.voirSortieBrew).toggleStyle(Interrupteur()).labelsHidden()
                     }
                     ligne(L.t("Apps ignorées", "Ignored apps"), L.t("Elles se retrouvent dans le filtre « Ignorées » de l'onglet Applications, un clic droit les fait suivre à nouveau.", "They are listed under “Ignored” in the Apps tab; right-click to track them again.")) {
-                        Text("\(m.apps.filter { m.estIgnoree($0) }.count)").font(T.police(14, .bold)).foregroundStyle(T.accent)
+                        Text("\(m.apps.filter { m.estMiseDeCote($0) }.count)").font(T.police(14, .bold)).foregroundStyle(T.accent)
                     }
                     ligne(L.t("Règles", "Rules"), L.t("Pour une app sans autre source : {\"bundleId\": \"…\", \"depot\": \"proprietaire/depot\"} pour GitHub, ou {\"bundleId\": \"…\", \"json\": \"adresse\", \"chemin\": \"mac.version\"} pour une adresse de l'éditeur.", "For an app with no other source: {\"bundleId\": \"…\", \"depot\": \"owner/repo\"} for GitHub, or {\"bundleId\": \"…\", \"json\": \"url\", \"chemin\": \"mac.version\"} for a developer URL.")) {
                         Button(L.t("Afficher le fichier", "Show file")) { NSWorkspace.shared.activateFileViewerSelecting([Regles.fichier]) }

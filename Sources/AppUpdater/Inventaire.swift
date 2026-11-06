@@ -37,7 +37,9 @@ enum Inventaire {
             build: (info["CFBundleVersion"] as? String ?? "").trimmingCharacters(in: .whitespaces),
             feedSparkle: (info["SUFeedURL"] as? String).flatMap { URL(string: $0.trimmingCharacters(in: .whitespaces)) },
             mas: mas,
-            derniereUtilisation: NSMetadataItem(url: URL(fileURLWithPath: chemin))?.value(forAttribute: "kMDItemLastUsedDate") as? Date
+            derniereUtilisation: NSMetadataItem(url: URL(fileURLWithPath: chemin))?.value(forAttribute: "kMDItemLastUsedDate") as? Date,
+            dateAjout: (try? URL(fileURLWithPath: chemin).resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate,
+            tourneIci: CeMac.tourne(app: chemin) != false
         )
     }
 }

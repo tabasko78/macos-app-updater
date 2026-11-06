@@ -64,6 +64,46 @@ enum CeMac {
         false
         #endif
     }
+    /// « arm » ou « intel », les mots des casks Homebrew.
+    static var processeur: String { puceApple ? "arm" : "intel" }
+
+    /// Processeurs pour lesquels le programme principal d'une app est fait (« arm », « intel »), lus dans
+    /// l'en-tête Mach-O : nil si illisible. Rien n'est lancé, quelques octets suffisent.
+    static func processeurs(app: String) -> Set<String>? {
+        let info = NSDictionary(contentsOfFile: app + "/Contents/Info.plist") as? [String: Any]
+        guard let exe = info?["CFBundleExecutable"] as? String,
+              let h = FileHandle(forReadingAtPath: app + "/Contents/MacOS/" + exe) else { return nil }
+        defer { try? h.close() }
+        guard let d = try? h.read(upToCount: 4096), d.count >= 8 else { return nil }
+        let o = [UInt8](d)
+        func be(_ i: Int) -> UInt32 { i + 4 <= o.count ? UInt32(o[i]) << 24 | UInt32(o[i+1]) << 16 | UInt32(o[i+2]) << 8 | UInt32(o[i+3]) : 0 }
+        func le(_ i: Int) -> UInt32 { i + 4 <= o.count ? UInt32(o[i+3]) << 24 | UInt32(o[i+2]) << 16 | UInt32(o[i+1]) << 8 | UInt32(o[i]) : 0 }
+        func nom(_ t: UInt32) -> String? { t == 0x0100_000C ? "arm" : t == 0x0100_0007 ? "intel" : nil }
+        switch be(0) {
+        case 0xCAFE_BABE, 0xCAFE_BABF:   // app universelle : une entrée par processeur (20 octets, 32 en 64 bits)
+            let n = Int(be(4)), pas = be(0) == 0xCAFE_BABF ? 32 : 20
+            guard n > 0, n < 16 else { return nil }
+            let r = Set((0..<n).compactMap { nom(be(8 + $0 * pas)) })
+            return r.isEmpty ? nil : r
+        case 0xCFFA_EDFE:                // un seul processeur, en-tête petit-boutiste
+            return nom(le(4)).map { [$0] }
+        default:
+            return nil
+        }
+    }
+
+    /// L'app peut-elle s'ouvrir ici ? Une puce Apple ouvre aussi les apps Intel (Rosetta), un Mac Intel jamais
+    /// une app faite pour puce Apple seule. nil : impossible à savoir.
+    static func tourne(app: String) -> Bool? {
+        guard let p = processeurs(app: app) else { return nil }
+        return puceApple || p.contains("intel")
+    }
+
+    /// Pourquoi une app ne s'ouvre pas ici.
+    static var raisonProcesseur: String {
+        puceApple ? L.t("faite pour les Mac Intel", "made for Intel Macs") : L.t("faite pour les puces Apple, ce Mac est Intel", "made for Apple silicon, this Mac is Intel")
+    }
+
     /// Clé des variantes du catalogue Homebrew pour ce Mac : « ventura » (Intel), « arm64_sequoia »…
     static var varianteHomebrew: String {
         let noms = [11: "big_sur", 12: "monterey", 13: "ventura", 14: "sonoma", 15: "sequoia", 26: "tahoe", 27: "golden_gate"]
@@ -82,6 +122,8 @@ struct AppInstallee: Identifiable, Sendable {
     let feedSparkle: URL?
     let mas: Bool
     var derniereUtilisation: Date? = nil   // relevée par Spotlight
+    var dateAjout: Date? = nil             // posée dans son dossier (installée ou remplacée) ce jour-là
+    var tourneIci = true                   // false : la version installée ne peut pas s'ouvrir sur ce Mac
 
     var source: Source = .aucune
     var disponible: String? = nil
@@ -100,7 +142,7 @@ struct AppInstallee: Identifiable, Sendable {
     /// Les seuls champs lus sur le disque : le point de départ pour réévaluer une app.
     var brute: AppInstallee {
         AppInstallee(chemin: chemin, nom: nom, bundleId: bundleId, version: version, build: build, feedSparkle: feedSparkle, mas: mas,
-                     derniereUtilisation: derniereUtilisation)
+                     derniereUtilisation: derniereUtilisation, dateAjout: dateAjout, tourneIci: tourneIci)
     }
 }
 

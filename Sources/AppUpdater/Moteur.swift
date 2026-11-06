@@ -81,7 +81,11 @@ final class Moteur: ObservableObject {
     @Published var ignorees: [String: String]           // bundle id → version ignorée
     @Published var nonSuivies: Set<String>              // bundle id
     @Published var lancementSession: Bool
-    @Published var historique: [EntreeJournal]
+    @Published var historique: [EntreeJournal] { didSet { majParApp = Self.dernieresMaj(historique) } }
+    private var majParApp: [String: Date] = [:]          // bundle id → dernière mise à jour ou installation au journal
+    @Published var rythmes: [String: Int]               // bundle id → chaque mise à jour ignorée pendant N jours (choix mémorisé)
+    private var attenteDepuis: [String: Date]           // bundle id → depuis quand une mise à jour attend
+    private var refusees: [String: String]              // bundle id@version → pourquoi elle ne s'installe pas ici
     @Published var aDesinstaller: AppInstallee?
     @Published var tailles: [String: Int64] = [:]       // chemin → octets occupés sur le disque
     @Published var selection: Set<String> = []          // ids des apps cochées
@@ -96,7 +100,7 @@ final class Moteur: ObservableObject {
     @Published var langue: Langue {
         didSet {
             reglages.set(langue.rawValue, forKey: "langue")
-            apps = apps.map { Verification.resoudre($0, contexte) }   // les remarques sont écrites dans la langue choisie
+            apps = apps.map { marquer(Verification.resoudre($0, contexte)) }   // les remarques sont écrites dans la langue choisie
         }
     }
     @Published var frequence: Int { didSet { reglages.set(frequence, forKey: "frequence"); planifier() } }   // en heures
@@ -123,12 +127,17 @@ final class Moteur: ObservableObject {
         ignorees = reglages.dictionary(forKey: "ignorees") as? [String: String] ?? [:]
         nonSuivies = Set(reglages.stringArray(forKey: "nonSuivies") ?? [])
         notifiees = Set(reglages.stringArray(forKey: "notifiees") ?? [])
+        rythmes = reglages.dictionary(forKey: "rythmes") as? [String: Int] ?? [:]
+        attenteDepuis = reglages.dictionary(forKey: "attenteDepuis") as? [String: Date] ?? [:]
+        refusees = reglages.dictionary(forKey: "refusees") as? [String: String] ?? [:]
         // Ouverture à la connexion : macOS la rattache à l'emplacement de l'app. Si l'app a été déplacée
         // (dans /Applications par exemple), on la réinscrit depuis son nouvel emplacement.
         let voulu = reglages.object(forKey: "ouvrirConnexion") as? Bool ?? (SMAppService.mainApp.status == .enabled)
         if voulu && SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
         lancementSession = SMAppService.mainApp.status == .enabled
-        historique = Historique.journal()
+        let journal = Historique.journal()
+        historique = journal
+        majParApp = Self.dernieresMaj(journal)
         theme = T.nom
         langue = L.choix
         frequence = reglages.object(forKey: "frequence") as? Int ?? 6
@@ -191,19 +200,60 @@ final class Moteur: ObservableObject {
     var incompatibles: [AppInstallee] { apps.filter { $0.aJour == false && $0.incompatible != nil && !estIgnoree($0) } }
 
     /// Les mises à jour trop récentes pour le délai choisi : affichées en attente, ni comptées ni proposées.
-    var enAttente: [AppInstallee] { apps.filter { $0.aJour == false && $0.incompatible == nil && !estIgnoree($0) && joursRestants($0) != nil } }
+    var enAttente: [AppInstallee] { apps.filter { $0.aJour == false && $0.incompatible == nil && !estIgnoree($0) && resteRythme($0) == nil && joursRestants($0) != nil } }
+
+    /// Ignorée pendant une semaine ou un mois (clic droit) : rangée avec les ignorées tant que la période court.
+    func estEnPause(_ a: AppInstallee) -> Bool { resteRythme(a) != nil }
+
+    /// Ce que montre le filtre « Ignorées » : version ignorée, app plus suivie, ou mise à jour ignorée pour la période.
+    func estMiseDeCote(_ a: AppInstallee) -> Bool { estIgnoree(a) || estEnPause(a) }
 
     private func cle(_ a: AppInstallee) -> String { a.bundleId + "@" + (a.disponible ?? "") }
 
-    /// Jours avant qu'une nouvelle version soit proposée, nil si elle l'est déjà. Elle compte depuis sa date de
-    /// publication quand la source la donne, sinon depuis le jour où l'app l'a vue pour la première fois.
+    /// Jours avant qu'une nouvelle version soit proposée, nil si elle l'est déjà : le plus long du délai « éprouvée »
+    /// et du rythme choisi pour cette app.
     func joursRestants(_ a: AppInstallee) -> Int? {
+        [resteDelai(a), resteRythme(a)].compactMap { $0 }.max()
+    }
+
+    /// Délai « éprouvée » : il compte depuis la date de publication quand la source la donne, sinon depuis le jour
+    /// où l'app a vu cette version pour la première fois.
+    private func resteDelai(_ a: AppInstallee) -> Int? {
         guard delai > 0 else { return nil }
         let vue = premieresVues[cle(a)] ?? Date()
         let depuis = min(a.datePublication ?? vue, vue)
-        let ecoules = Calendar.current.dateComponents([.day], from: depuis, to: Date()).day ?? 0
-        let reste = delai - ecoules
+        let reste = delai - (Calendar.current.dateComponents([.day], from: depuis, to: Date()).day ?? 0)
         return reste > 0 ? reste : nil
+    }
+
+    /// Clic droit « Ignorer pendant une semaine / un mois », mémorisé pour l'app : chaque mise à jour qui apparaît
+    /// reste ignorée N jours, puis la plus récente du moment est proposée.
+    func resteRythme(_ a: AppInstallee) -> Int? {
+        guard let n = rythmes[a.bundleId], n > 0, a.aJour == false else { return nil }
+        let d = attenteDepuis[a.bundleId] ?? Date()
+        let reste = n - (Calendar.current.dateComponents([.day], from: d, to: Date()).day ?? 0)
+        return reste > 0 ? reste : nil
+    }
+
+    /// Dernière fois que l'app a changé : mise à jour ou installation notée au journal, ou date à laquelle elle a été
+    /// posée dans son dossier (ce que fait aussi une mise à jour faite ailleurs). La plus récente des deux.
+    func derniereMaj(_ a: AppInstallee) -> Date? {
+        [majParApp[a.bundleId], a.dateAjout].compactMap { $0 }.max()
+    }
+
+    private static func dernieresMaj(_ j: [EntreeJournal]) -> [String: Date] {
+        var r: [String: Date] = [:]
+        for e in j where !e.bundleId.isEmpty && (e.quoi == "Mise à jour" || e.quoi == "Installée") {
+            if r[e.bundleId].map({ e.date > $0 }) ?? true { r[e.bundleId] = e.date }
+        }
+        return r
+    }
+
+    /// Une version déjà refusée ici (faite pour l'autre processeur) reste affichée grisée avec la raison, plus proposée.
+    private func marquer(_ a: AppInstallee) -> AppInstallee {
+        var a = a
+        if a.aJour == false, a.incompatible == nil, let r = refusees[cle(a)] { a.incompatible = r }
+        return a
     }
 
     /// « rien| » : Gemini n'a rien trouvé pour cette version, retenu pour ne plus le redemander, jamais affiché.
@@ -216,7 +266,17 @@ final class Moteur: ObservableObject {
         enCours = true
         let r = await Verification.tout()
         contexte = r.contexte
-        apps = r.apps.sorted { $0.nom.localizedCaseInsensitiveCompare($1.nom) == .orderedAscending }
+        apps = r.apps.map(marquer).sorted { $0.nom.localizedCaseInsensitiveCompare($1.nom) == .orderedAscending }
+        // Début de l'attente de chaque app : posé quand une mise à jour apparaît, effacé une fois l'app à jour.
+        var attente = attenteDepuis
+        for a in apps where a.aJour != nil { attente[a.bundleId] = a.aJour == false ? (attente[a.bundleId] ?? Date()) : nil }
+        if attente != attenteDepuis { attenteDepuis = attente; reglages.set(attente, forKey: "attenteDepuis") }
+        // Une version refusée qui n'est plus la dernière publiée n'a plus à être retenue.
+        let enCoursDeProposition = Set(apps.filter { $0.aJour == false }.map(cle))
+        if refusees.keys.contains(where: { !enCoursDeProposition.contains($0) }) {
+            refusees = refusees.filter { enCoursDeProposition.contains($0.key) }
+            reglages.set(refusees, forKey: "refusees")
+        }
         if !r.erreurs.isEmpty { message = r.erreurs.joined(separator: " · ") }
         derniereVerif = Date()
         let restantes = Set(cochables.map(\.id))
@@ -451,7 +511,19 @@ final class Moteur: ObservableObject {
         d[a.bundleId] = c?.rawValue
         reglages.set(d, forKey: "classements")
         contexte.classements = d
-        apps = apps.map { Verification.resoudre($0, contexte) }
+        apps = apps.map { marquer(Verification.resoudre($0, contexte)) }
+    }
+
+    /// Clic droit « Ignorer pendant une semaine / un mois » ; 0 revient à proposer dès la sortie. L'attente de la
+    /// mise à jour en cours repart d'aujourd'hui.
+    func choisirRythme(_ a: AppInstallee, _ jours: Int) {
+        rythmes[a.bundleId] = jours > 0 ? jours : nil
+        reglages.set(rythmes, forKey: "rythmes")
+        if jours > 0, a.aJour == false {
+            attenteDepuis[a.bundleId] = Date()
+            reglages.set(attenteDepuis, forKey: "attenteDepuis")
+        }
+        selection = selection.intersection(Set(cochables.map(\.id)))
     }
 
     func nePlusSuivre(_ a: AppInstallee) {
@@ -727,7 +799,7 @@ final class Moteur: ObservableObject {
             progression[id] = 1
             etape[id] = L.t("Terminé", "Done")
             if let n = Inventaire.lire(chemin: a.chemin) {
-                let r = Verification.resoudre(n, contexte)
+                let r = marquer(Verification.resoudre(n, contexte))
                 remplacer(r)
                 noter([.init(date: Date(), nom: a.nom, bundleId: a.bundleId, avant: a.versionAffichee, apres: r.versionAffichee, quoi: "Mise à jour", par: a.source.rawValue)])
                 retenirVersion(r)
@@ -740,6 +812,12 @@ final class Moteur: ObservableObject {
         } catch {
             sortieBrew += L.t("échec : ", "failed: ") + error.localizedDescription + "\n"
             echecs[id] = error.localizedDescription
+            if error is ErreurProcesseur {
+                refusees[cle(a)] = L.t("nouvelle version ", "new version ") + CeMac.raisonProcesseur
+                reglages.set(refusees, forKey: "refusees")
+                remplacer(marquer(a))
+                selection.remove(id)
+            }
             message = L.t("Échec de la mise à jour de \(a.nom) : \(error.localizedDescription)", "Updating \(a.nom) failed: \(error.localizedDescription)")
         }
     }

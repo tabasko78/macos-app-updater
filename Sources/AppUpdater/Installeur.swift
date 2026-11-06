@@ -63,6 +63,8 @@ enum Installeur {
         guard info?["CFBundleIdentifier"] as? String == a.bundleId else {
             throw ErreurSource(L.t("le fichier téléchargé n'est pas \(a.nom)", "the downloaded file is not \(a.nom)"))
         }
+        // Une version faite pour l'autre processeur remplacerait une app qui marche par une app qui ne s'ouvre plus.
+        if CeMac.tourne(app: nouvelle.path) == false { throw ErreurProcesseur() }
         let avant = await equipe(a.chemin)
         guard avant != nil else { return }   // l'app installée n'était pas signée par un éditeur : rien à comparer
         guard await Shell.lancer("/usr/bin/codesign", ["--verify", "--deep", "--strict", nouvelle.path], delai: 120).code == 0 else {
@@ -103,6 +105,12 @@ enum Installeur {
     static func nettoyer(_ fichier: URL) {
         try? FileManager.default.removeItem(at: fichier.deletingLastPathComponent())
     }
+}
+
+/// La nouvelle version ne peut pas s'ouvrir sur ce Mac : l'installation s'arrête avant de toucher à l'app en place,
+/// et cette version n'est plus proposée ici.
+struct ErreurProcesseur: Error, LocalizedError {
+    var errorDescription: String? { L.t("nouvelle version ", "new version ") + CeMac.raisonProcesseur + L.t(" : rien n'a été remplacé", ": nothing was replaced") }
 }
 
 /// Téléchargement avec suivi de progression (URLSession ne la donne qu'à un délégué).

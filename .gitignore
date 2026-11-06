@@ -5,3 +5,5 @@ build/
 # Personal copy settings (bundle id, name, theme…), never published
 perso/
 Ressources/AppIcon.icns
+# Local backups before edits, never published
+sauvegardes/

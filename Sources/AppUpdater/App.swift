@@ -109,7 +109,6 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let hote = NSHostingController(rootView: FenetreListe().environmentObject(moteur))
             hote.sizingOptions = []   // c'est ajusterHauteur qui décide de la taille, pas SwiftUI
             let f = NSWindow(contentViewController: hote)
-            f.minSize = NSSize(width: 820, height: 260)
             f.title = L.t("Mises à jour", "App Updater")
             // Pas de barre de titre système : le fond de l'app monte jusqu'en haut, seuls les trois boutons restent.
             f.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
@@ -118,9 +117,16 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
             f.isMovableByWindowBackground = true
             f.isReleasedWhenClosed = false
             f.delegate = self
-            f.setContentSize(NSSize(width: 980, height: 720))
+            f.setContentSize(NSSize(width: 1130, height: 720))
             f.center()
             f.setFrameAutosaveName("FenetrePrincipale")
+            // Après le style et la taille enregistrée, qui sinon la remettent à zéro ou la rétrécissent.
+            f.contentMinSize = NSSize(width: Self.largeurMini, height: 260)
+            if f.frame.width < Self.largeurMini {
+                var c = f.frame
+                c.size.width = Self.largeurMini
+                f.setFrame(c, display: false)
+            }
             fenetre = f
         }
         // Icône dans le Dock seulement si le réglage le demande ; la fenêtre passe devant dans tous les cas.
@@ -137,7 +143,7 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let f = fenetre, contenu > 0 else { return }
         let barre = f.frame.height - f.contentLayoutRect.height   // barre de titre transparente
         let ecran = (f.screen ?? NSScreen.main)?.visibleFrame ?? .zero
-        let voulue = min(max(contenu + barre, f.minSize.height), ecran.height - 20)
+        let voulue = min(max(contenu + barre, f.contentMinSize.height + barre), ecran.height - 20)
         guard abs(voulue - f.frame.height) > 1 else { return }
         // Journal : la fenêtre grandit pour montrer ses lignes (20 au plus), mais ne rapetisse pas.
         if moteur.journalOuvert && voulue < f.frame.height { return }
@@ -148,6 +154,20 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Et jamais le haut au-dessus de l'écran : les boutons de la fenêtre et l'en-tête resteraient cachés.
         if cadre.maxY > ecran.maxY { cadre.origin.y = ecran.maxY - cadre.height }
         f.setFrame(cadre, display: true, animate: f.isVisible)
+    }
+
+    /// La fenêtre ne descend jamais sous cette largeur, on peut seulement l'agrandir.
+    static let largeurMini: CGFloat = 1100
+
+    /// À la main, seule la largeur change : la hauteur suit toujours le contenu (ajusterHauteur).
+    func windowWillResize(_ f: NSWindow, to taille: NSSize) -> NSSize {
+        NSSize(width: max(taille.width, Self.largeurMini), height: f.frame.height)
+    }
+
+    /// Une taille imposée d'ailleurs (script, autre app) : la hauteur revient à celle du contenu.
+    func windowDidResize(_ n: Notification) {
+        guard let f = n.object as? NSWindow, f === fenetre, !f.inLiveResize else { return }
+        ajusterHauteur(moteur.hauteurFenetre)
     }
 
     func windowWillClose(_ n: Notification) {
