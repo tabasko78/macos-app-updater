@@ -23,6 +23,7 @@ struct LigneApp: View {
     @EnvironmentObject var m: Moteur
     let app: AppInstallee
     var compacte = false
+    var autreSource = false   // vue App Store : colonne de la version de l'éditeur
 
     private var largeurBouton: CGFloat { compacte ? 116 : 132 }
 
@@ -80,6 +81,13 @@ struct LigneApp: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if !compacte, autreSource, let s = m.autreSource(app) {
+                    let oui = m.liberable(app)
+                    Text(s).font(T.police(11)).foregroundStyle(oui ? T.versionNouvelle : T.tresDoux).lineLimit(1)
+                        .frame(width: 170, alignment: .leading)
+                        .help(oui ? L.t("L'éditeur publie sa propre version : clic droit > Libérer de l'App Store…", "The developer publishes its own version: right-click > Free from the App Store…")
+                                  : L.t("Aucune version de l'éditeur connue : cette app ne se met à jour que par l'App Store", "No developer version known: this app only updates through the App Store"))
+                }
                 if !compacte {
                     Text(usage).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
                         .frame(width: 150, alignment: .leading)
@@ -203,6 +211,9 @@ struct LigneApp: View {
         ForEach([(7, L.t("Ignorer pendant une semaine", "Ignore for a week")), (30, L.t("Ignorer pendant un mois", "Ignore for a month"))], id: \.0) { j, t in
             Toggle(t, isOn: Binding(get: { m.rythmes[app.bundleId] == j }, set: { oui in m.choisirRythme(app, oui ? j : 0) }))
         }
+        if m.liberable(app) {
+            Button(L.t("Libérer de l'App Store…", "Free from the App Store…")) { Task { await m.libererDeLAppStore(app) } }
+        }
         if m.estIgnoree(app) {
             Button(L.t("Suivre à nouveau", "Track again")) { m.neplusIgnorer(app) }
         } else {
@@ -278,6 +289,7 @@ final class EtatFenetre: ObservableObject {
     @Published var survolDepot = false
     @Published var tri: Tri = .nom
     @Published var source: Source? = nil   // nil : toutes les sources
+    @Published var liberables = false      // seulement les apps App Store qui ont une version de l'éditeur
 }
 
 struct FenetreListe: View {
@@ -321,7 +333,7 @@ struct FenetreListe: View {
             }
             return true
         }
-        // Formes compatibles macOS 13 (iMac 2017) : onAppear + onChange à un seul paramètre.
+        // Formes compatibles macOS 13 (Mac Intel de 2017) : onAppear + onChange à un seul paramètre.
         .onAppear { m.journalOuvert = etat.onglet == .journal }
         .onChange(of: etat.onglet) { o in m.journalOuvert = o == .journal }
         .sheet(item: $m.aDesinstaller) { DesinstallationVue(app: $0).environmentObject(m) }
@@ -397,6 +409,7 @@ struct FenetreListe: View {
     private var liste: [AppInstallee] {
         var base = appsDuFiltre(etat.filtre)
         if etat.filtre == .toutes, let src = etat.source { base = base.filter { $0.source == src } }
+        if etat.filtre == .toutes, etat.liberables { base = base.filter(m.liberable) }
         if !etat.recherche.isEmpty { base = base.filter { $0.nom.localizedCaseInsensitiveContains(etat.recherche) } }
         if etat.filtre == .toutes {
             switch etat.tri {
@@ -455,6 +468,14 @@ struct FenetreListe: View {
                 ForEach(Tri.allCases) { t in
                     Button(t.libelle) { etat.tri = t }.buttonStyle(Puce(active: etat.tri == t))
                 }
+                // Filtre, pas un tri : seulement les apps App Store dont l'éditeur publie sa propre version.
+                let n = appsDuFiltre(.toutes).filter(m.liberable).count
+                if n > 0 || etat.liberables {
+                    Text("·").font(T.police(12)).foregroundStyle(T.tresDoux)
+                    Button(L.t("Libérables (\(n))", "Can be freed (\(n))")) { etat.liberables.toggle() }
+                        .buttonStyle(Puce(active: etat.liberables))
+                        .help(L.t("Apps de l'App Store que l'éditeur publie aussi : clic droit > Libérer de l'App Store…", "App Store apps the developer also publishes: right-click > Free from the App Store…"))
+                }
                 if etat.tri == .taille {
                     let total = m.tailles.values.reduce(0, +)
                     Text(L.t("· \(Desinstalleur.lisible(total)) au total", "· \(Desinstalleur.lisible(total)) in total")).font(T.police(12)).foregroundStyle(T.tresDoux)
@@ -476,7 +497,7 @@ struct FenetreListe: View {
                      reserve: 300 + (m.voirSortieBrew && etat.sortieOuverte && !m.sortieBrew.isEmpty ? 200 : 0)
                          + CGFloat(min(m.avis.count, 6)) * 22 + (m.nouvelleVersionApp != nil ? 50 : 0)) {
             VStack(spacing: 6) {
-                ForEach(liste) { LigneApp(app: $0) }
+                ForEach(liste) { LigneApp(app: $0, autreSource: etat.filtre == .toutes && (etat.source == .appStore || etat.liberables)) }
                 if liste.isEmpty && !m.enCours {
                     Text(etat.filtre == .aMettreAJour ? L.t("Tout est à jour.", "Everything is up to date.") : L.t("Rien ici.", "Nothing here."))
                         .font(T.police(13)).foregroundStyle(T.doux).padding(.top, 30)

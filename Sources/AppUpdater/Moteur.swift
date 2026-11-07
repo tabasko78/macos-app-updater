@@ -339,7 +339,7 @@ final class Moteur: ObservableObject {
         if let g = messageGemini { avis.removeAll { $0.texte == g } }
         messageGemini = nil
         // Une version qui a échoué (Gemini saturé, réseau…) n'est retentée qu'une fois par jour : sinon chaque
-        // vérification, toutes les heures, repayait l'appel (68 appels pour 33 résumés sur l'iMac, 29/10/2026).
+        // vérification, toutes les heures, repayait l'appel (68 appels pour 33 résumés, 29/10/2026).
         var echecs = reglages.dictionary(forKey: "echecsGemini") as? [String: Date] ?? [:]
         echecs = echecs.filter { -$0.value.timeIntervalSinceNow < 86_400 }
         defer { reglages.set(echecs, forKey: "echecsGemini") }
@@ -553,6 +553,23 @@ final class Moteur: ObservableObject {
     // MARK: - Mise à jour
 
     func mettreAJour(_ a: AppInstallee) async {
+        await lancer(a)
+        if a.action.installe { revenirAuPremierPlan() }
+    }
+
+    /// Fin d'une installation lancée à la main : la fenêtre revient devant. Entre-temps, la fenêtre du mot de passe
+    /// administrateur ou l'app rouverte (qui se met parfois devant d'elle-même) a pu prendre la main. Deuxième passage
+    /// au bout de 2 s pour les apps qui s'activent tard à leur démarrage. Jamais pendant une mise à jour automatique.
+    private func revenirAuPremierPlan() {
+        guard !sansTemoin else { return }
+        montrerFenetre?()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            if self?.sansTemoin == false { self?.montrerFenetre?() }
+        }
+    }
+
+    private func lancer(_ a: AppInstallee) async {
         switch a.action {
         case .appStore(let u):
             var c = URLComponents(url: u, resolvingAgainstBaseURL: false)
@@ -601,7 +618,7 @@ final class Moteur: ObservableObject {
         avis.removeAll()   // un nouveau lot repart d'une pile propre
         var echecs: [String] = []
         for a in liste {
-            await mettreAJour(a)
+            await lancer(a)
             selection.remove(a.id)
             // Une app encore dans la liste après son passage n'a pas été mise à jour (Homebrew seulement :
             // App Store, page et Terminal ne font qu'ouvrir quelque chose).
@@ -610,6 +627,7 @@ final class Moteur: ObservableObject {
             lot = (lot!.fait + 1, liste.count)
         }
         lot = nil
+        if liste.contains(where: \.action.installe) { revenirAuPremierPlan() }
         // Bilan du lot, au lieu du message de la dernière app seulement.
         let faites = liste.count - echecs.count
         message = echecs.isEmpty
@@ -751,7 +769,7 @@ final class Moteur: ObservableObject {
             }
             echecs[id] = Self.raisonEchec(r.sortie)
             message = L.t("Échec de la mise à jour de \(a.nom), le détail est dans la sortie Homebrew", "Updating \(a.nom) failed, see the Homebrew output")
-            // Homebrew vieillissant ou installé par un autre compte du Mac (iMac de 2017, 29/10/2026).
+            // Homebrew vieillissant ou installé par un autre compte du Mac (Mac Intel de 2017, 29/10/2026).
             if r.sortie.contains("shallow clone") {
                 message = L.t("Le Homebrew de ce Mac ne peut plus se mettre à jour : lance « brew untap homebrew/core » puis « brew update » dans le Terminal.",
                               "This Mac's Homebrew can no longer update: run “brew untap homebrew/core” then “brew update” in Terminal.")
@@ -769,7 +787,7 @@ final class Moteur: ObservableObject {
     }
 
     /// Sans Homebrew : télécharger le fichier, vérifier empreinte et signature, fermer l'app, la remplacer, la rouvrir.
-    private func installerDirect(_ a: AppInstallee, _ url: URL, _ sha: String?) async {
+    private func installerDirect(_ a: AppInstallee, _ url: URL, _ sha: String?, liberer: Bool = false) async {
         let id = a.id
         entrer(Self.preparation, id)
         let suivi = suivre(id, url: nil, homebrew: false)
@@ -791,7 +809,7 @@ final class Moteur: ObservableObject {
                 sortieBrew += L.t("empreinte vérifiée", "hash verified") + "\n"
             }
             let nouvelle = try await Installeur.extraire(f)
-            try await Installeur.controler(nouvelle, contre: a)
+            try await Installeur.controler(nouvelle, contre: a, autreIdentifiant: liberer)
             sortieBrew += L.t("signature contrôlée", "signature checked") + "\n"
             entrer(Self.installationPhase, id)
             guard let tournait = await fermer(a) else { throw ErreurSource(message ?? L.t("annulé", "cancelled")) }
@@ -801,24 +819,120 @@ final class Moteur: ObservableObject {
             if let n = Inventaire.lire(chemin: a.chemin) {
                 let r = marquer(Verification.resoudre(n, contexte))
                 remplacer(r)
-                noter([.init(date: Date(), nom: a.nom, bundleId: a.bundleId, avant: a.versionAffichee, apres: r.versionAffichee, quoi: "Mise à jour", par: a.source.rawValue)])
+                noter([.init(date: Date(), nom: a.nom, bundleId: r.bundleId, avant: a.versionAffichee, apres: r.versionAffichee, quoi: "Mise à jour", par: liberer ? "Libérée de l'App Store" : a.source.rawValue)])
                 retenirVersion(r)
                 mesurerTailles()
             }
             sortieBrew += L.t("installée", "installed") + "\n"
-            message = L.t("\(a.nom) mise à jour", "\(a.nom) updated")
+            message = liberer ? L.t("\(a.nom) ne dépend plus de l'App Store", "\(a.nom) no longer depends on the App Store")
+                              : L.t("\(a.nom) mise à jour", "\(a.nom) updated")
             if tournait { ouvrir(a, auPremierPlan: false) }
             try? await Task.sleep(for: .milliseconds(600))
         } catch {
             sortieBrew += L.t("échec : ", "failed: ") + error.localizedDescription + "\n"
             echecs[id] = error.localizedDescription
-            if error is ErreurProcesseur {
+            if error is ErreurProcesseur, !liberer {
                 refusees[cle(a)] = L.t("nouvelle version ", "new version ") + CeMac.raisonProcesseur
                 reglages.set(refusees, forKey: "refusees")
                 remplacer(marquer(a))
                 selection.remove(id)
             }
-            message = L.t("Échec de la mise à jour de \(a.nom) : \(error.localizedDescription)", "Updating \(a.nom) failed: \(error.localizedDescription)")
+            message = liberer
+                ? L.t("\(a.nom) n'a pas été libérée de l'App Store : \(error.localizedDescription)", "\(a.nom) was not freed from the App Store: \(error.localizedDescription)")
+                : L.t("Échec de la mise à jour de \(a.nom) : \(error.localizedDescription)", "Updating \(a.nom) failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Libérer de l'App Store
+
+    /// App installée depuis l'App Store dont l'éditeur publie aussi sa propre version (connue de Homebrew) :
+    /// elle peut être remplacée par celle-ci, qui se met ensuite à jour sans l'App Store.
+    func liberable(_ a: AppInstallee) -> Bool {
+        guard a.mas, let k = a.cask, !k.retire, let u = k.url.flatMap(URL.init(string:)) else { return false }
+        guard !k.terminal || u.pathExtension.lowercased() == "pkg" else { return false }   // installeur maison : non
+        return Verification.brewRemplace(a, k) && (k.archs.map { $0.contains(CeMac.processeur) } ?? true)
+    }
+
+    /// Colonne de la vue App Store : où trouver la version de l'éditeur. nil hors App Store.
+    func autreSource(_ a: AppInstallee) -> String? {
+        guard a.mas else { return nil }
+        guard liberable(a), let k = a.cask else { return L.t("App Store seulement", "App Store only") }
+        return L.t("Autre source : ", "Other source: ") + (k.terminal ? "Homebrew (.pkg)" : "Homebrew")
+    }
+
+    /// Remplace la version App Store par celle de l'éditeur, après confirmation. Les contrôles sont ceux d'une
+    /// mise à jour : même identifiant d'app, même éditeur signataire, faite pour ce processeur. L'ancienne part à la Corbeille.
+    func libererDeLAppStore(_ a: AppInstallee) async {
+        guard liberable(a), let k = a.cask, let u = k.url.flatMap(URL.init(string:)) else { return }
+        let r = demander(L.t("Libérer \(a.nom) de l'App Store", "Free \(a.nom) from the App Store"),
+                         L.t("⚠️  Vérifiez que vous ne payez pas d'abonnement pour cette application via l'App Store.\n\n⚠️  Vous allez devoir reconfigurer le logiciel comme si c'était une première installation.",
+                             "⚠️  Make sure you do not pay a subscription for this app through the App Store.\n\n⚠️  You will have to set the app up again as if it were a first install."),
+                         [L.t("Accepter", "Accept"), L.t("Annuler", "Cancel")])
+        guard r.bouton == 0 else { return }
+        if k.terminal { await libererPaquet(a, u, k.sha256) } else { await installerDirect(a, u, k.sha256, liberer: true) }
+        revenirAuPremierPlan()
+    }
+
+    /// Version de l'éditeur livrée en .pkg : le paquet doit être signé par l'éditeur de l'app App Store et poser
+    /// cette app ; après l'installation, l'app en place doit avoir le même identifiant et le même éditeur.
+    private func libererPaquet(_ a: AppInstallee, _ url: URL, _ sha: String?) async {
+        let id = a.id
+        entrer(Self.preparation, id)
+        let suivi = suivre(id, url: nil, homebrew: false)
+        var fichier: URL?
+        defer {
+            suivi.cancel(); progression[id] = nil; etape[id] = nil; phases[id] = nil
+            if let fichier { Installeur.nettoyer(fichier) }
+        }
+        sortieBrew += "\n# \(a.nom) : \(url.absoluteString)\n"
+        do {
+            entrer(Self.telechargementPhase, id)
+            let f = try await Installeur.telecharger(url) { fait, total in
+                Task { @MainActor [weak self] in self?.avancerTelechargement(id, fait, total) }
+            }
+            fichier = f
+            entrer(Self.verificationPhase, id)
+            guard f.pathExtension.lowercased() == "pkg" else { throw ErreurSource(L.t("le fichier téléchargé n'est pas un paquet .pkg", "the downloaded file is not a .pkg package")) }
+            if let sha {
+                guard try Installeur.empreinte(f) == sha.lowercased() else { throw ErreurSource(L.t("empreinte du fichier incorrecte, téléchargement refusé", "wrong file hash, download rejected")) }
+                sortieBrew += L.t("empreinte vérifiée", "hash verified") + "\n"
+            }
+            guard let avant = await Installeur.equipe(a.chemin), await Installeur.equipePaquet(f) == avant else {
+                throw ErreurSource(L.t("le paquet n'est pas signé par l'éditeur de \(a.nom)", "the package is not signed by \(a.nom)'s developer"))
+            }
+            let nom = (a.chemin as NSString).lastPathComponent
+            let apps = await Installeur.appsDuPaquet(f)
+            guard apps.contains(nom) else { throw ErreurSource(L.t("le paquet n'installe pas \(nom)", "the package does not install \(nom)")) }
+            sortieBrew += L.t("signature contrôlée", "signature checked") + "\n"
+            let autres = apps.filter { $0 != nom }.map { ($0 as NSString).deletingPathExtension }
+            if !autres.isEmpty {
+                let r = demander(L.t("Ce paquet installe aussi d'autres apps", "This package also installs other apps"), autres.joined(separator: ", "),
+                                 [L.t("Continuer", "Continue"), L.t("Annuler", "Cancel")])
+                guard r.bouton == 0 else { throw ErreurSource(L.t("annulé", "cancelled")) }
+            }
+            entrer(Self.installationPhase, id)
+            guard let tournait = await fermer(a) else { throw ErreurSource(message ?? L.t("annulé", "cancelled")) }
+            let zip = try await Installeur.installerPaquet(f, remplace: a.chemin)
+            // L'identifiant peut changer (version hors App Store), pas l'éditeur.
+            guard let n = Inventaire.lire(chemin: a.chemin), await Installeur.equipe(a.chemin) == avant else {
+                throw ErreurSource(L.t("le paquet n'a pas remis \(a.nom) à sa place, l'ancienne version est dans la Corbeille (\((zip as NSString).lastPathComponent))",
+                                       "the package did not put \(a.nom) back in place, the old version is in the Trash (\((zip as NSString).lastPathComponent))"))
+            }
+            progression[id] = 1
+            etape[id] = L.t("Terminé", "Done")
+            let r = marquer(Verification.resoudre(n, contexte))
+            remplacer(r)
+            noter([.init(date: Date(), nom: a.nom, bundleId: r.bundleId, avant: a.versionAffichee, apres: r.versionAffichee, quoi: "Mise à jour", par: "Libérée de l'App Store")])
+            retenirVersion(r)
+            mesurerTailles()
+            sortieBrew += L.t("installée", "installed") + "\n"
+            message = L.t("\(a.nom) ne dépend plus de l'App Store", "\(a.nom) no longer depends on the App Store")
+            if tournait { ouvrir(a, auPremierPlan: false) }
+            try? await Task.sleep(for: .milliseconds(600))
+        } catch {
+            sortieBrew += L.t("échec : ", "failed: ") + error.localizedDescription + "\n"
+            echecs[id] = error.localizedDescription
+            message = L.t("\(a.nom) n'a pas été libérée de l'App Store : \(error.localizedDescription)", "\(a.nom) was not freed from the App Store: \(error.localizedDescription)")
         }
     }
 

@@ -37,6 +37,14 @@ enum Action: Equatable, Sendable {
     case ouvrirApp
     case page(URL)
     case aucune
+
+    /// L'app installe elle-même (Homebrew ou fichier de l'éditeur), au lieu d'ouvrir l'App Store ou une page.
+    var installe: Bool {
+        switch self {
+        case .brew, .installer: true
+        default: false
+        }
+    }
 }
 
 struct CaskInfo: Codable, Sendable {
@@ -49,6 +57,7 @@ struct CaskInfo: Codable, Sendable {
     var retire = false        // cask retiré de Homebrew : sa dernière version reste connue, il ne s'installe plus
     var minMacOS: String? = nil   // version de macOS demandée par la dernière version (« 14 »)
     var archs: [String]? = nil    // processeurs acceptés (« arm », « intel ») ; nil : tous
+    var sha256: String? = nil     // empreinte du fichier, quand le cask la publie
 }
 
 /// Le Mac sur lequel tourne l'app : version de macOS et processeur, pour écarter les versions incompatibles.

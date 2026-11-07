@@ -33,7 +33,6 @@ enum Classeur {
         ("com.adobe.", .integree, L.t("se met à jour par Creative Cloud", "updated by Creative Cloud")),
         ("com.bitdefender.", .integree, L.t("se met à jour par Bitdefender", "updated by Bitdefender")),
         ("net.downloadhelper.coapp", .composant, L.t("compagnon de l'extension Video DownloadHelper de Firefox", "companion of the Video DownloadHelper Firefox extension")),
-        ("com.anthropic.claude-code-url-handler", .composant, L.t("composant de Claude Code", "part of Claude Code")),
         ("com.lihaoyun6.PD-Runner", .abandonnee, L.t("dépôt GitHub bloqué depuis 2022", "GitHub repository blocked since 2022")),
         ("com.yourcompany.PairingWizard", .abandonnee, L.t("utilitaire sans éditeur identifiable", "utility with no identifiable developer")),
     ] }
@@ -41,6 +40,10 @@ enum Classeur {
     /// `ids` : bundle id → nom de toutes les apps installées, pour reconnaître les composants.
     static func classer(_ a: AppInstallee, ids: [String: String]) -> (Classement, String)? {
         if ConfigApp.appsPerso.contains(a.nom) { return (.perso, L.t("app personnelle", "personal app")) }
+        // Petite app qui ne sert qu'à ouvrir les liens d'un autre logiciel (« …-url-handler »).
+        if a.bundleId.lowercased().hasSuffix("url-handler") || a.bundleId.hasSuffix("URLHandler") {
+            return (.composant, L.t("ouvre les liens d'un autre logiciel", "opens links for another program"))
+        }
         if let c = connus.first(where: { a.bundleId == $0.0 || ($0.0.hasSuffix(".") && a.bundleId.hasPrefix($0.0)) }) {
             return (c.1, c.2)
         }

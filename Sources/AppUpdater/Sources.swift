@@ -17,15 +17,18 @@ enum Homebrew {
         var parNom: [String: Int] = [:]     // nom du .app, en minuscules
         var parQuit: [String: Int] = [:]    // bundle id que le cask ferme avant désinstallation
         var parPref: [String: Int] = [:]    // bundle id tiré de ~/Library/Preferences/<id>.plist
+        var parJeton: [String: Int] = [:]   // jeton des casks .pkg, qui ne nomment pas leur app (« microsoft-word »)
 
         func trouver(_ a: AppInstallee) -> CaskInfo? {
             let nom = (a.chemin as NSString).lastPathComponent.lowercased()
             let id = a.bundleId.lowercased()
-            return (parNom[nom] ?? parQuit[id] ?? parPref[id]).map { casks[$0] }
+            // « Microsoft Word.app » → « microsoft-word » : sans lui, Word tombait sur microsoft-office, toute la suite.
+            let jeton = String((nom as NSString).deletingPathExtension.replacingOccurrences(of: " ", with: "-").filter { $0.isLetter || $0.isNumber || $0 == "-" })
+            return (parNom[nom] ?? parJeton[jeton] ?? parQuit[id] ?? parPref[id]).map { casks[$0] }
         }
     }
 
-    static var fichierIndex: URL { Dossiers.caches.appendingPathComponent("index-brew-v2.json") }   // v2 : exigences macOS et processeur
+    static var fichierIndex: URL { Dossiers.caches.appendingPathComponent("index-brew-v4.json") }   // v2 : exigences macOS et processeur ; v3 : empreinte ; v4 : jetons des .pkg
 
     /// L'index réduit (quelques Mo) est fabriqué par un second processus : analyser le catalogue
     /// complet (19 Mo de JSON) dans l'app gonflerait sa mémoire pour toute la durée de sa vie.
@@ -68,7 +71,7 @@ enum Homebrew {
         let variante = CeMac.varianteHomebrew
         for brut in casks {
             // Les champs propres à ce Mac (version, adresse, exigences) remplacent ceux par défaut, faits pour
-            // la puce Apple sur le dernier macOS : un iMac Intel en Ventura a parfois une autre version.
+            // la puce Apple sur le dernier macOS : un Mac Intel en Ventura a parfois une autre version.
             var c = brut
             if let v = (brut["variations"] as? [String: Any])?[variante] as? [String: Any] {
                 for (k, val) in v { c[k] = val }
@@ -105,8 +108,10 @@ enum Homebrew {
             let archs = (dep?["arch"] as? [[String: Any]])?.compactMap { $0["type"] as? String }
             idx.casks.append(CaskInfo(token: token, url: c["url"] as? String, version: version, apps: noms,
                                       terminal: terminal, autoUpdates: c["auto_updates"] as? Bool ?? false, retire: retire,
-                                      minMacOS: minMacOS, archs: archs))
+                                      minMacOS: minMacOS, archs: archs,
+                                      sha256: (c["sha256"] as? String).flatMap { $0.count == 64 ? $0 : nil }))
             for x in noms { ranger(&idx.parNom, x.lowercased(), n, idx.casks) }
+            if noms.isEmpty && terminal { idx.parJeton[token] = n }
             for x in quits { ranger(&idx.parQuit, x.lowercased(), n, idx.casks) }
             for x in prefs { ranger(&idx.parPref, x.lowercased(), n, idx.casks) }
         }
