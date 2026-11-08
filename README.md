@@ -4,7 +4,13 @@ A small menu bar app that checks every app in `/Applications` for updates and in
 
 ![Updates to install](docs/apps.jpg)
 
+![App Store apps that can be freed](docs/app-store.jpg)
+
 ![Settings](docs/settings.jpg)
+
+![Menu bar panel](docs/menu-bar.jpg)
+
+*Screenshots made with demo data (`--demo`): the versions and summaries are made up.*
 
 ## What it does
 
@@ -18,6 +24,7 @@ A small menu bar app that checks every app in `/Applications` for updates and in
   - with Homebrew when it knows the app;
   - otherwise by downloading the new `.zip` or `.dmg` itself, checking its hash when published, checking it is signed by the same developer, then replacing the app (the old one goes to the Trash);
   - App Store apps open their App Store page.
+- **Frees apps from the App Store**: when the developer also publishes its own version (`.zip`, `.dmg` or `.pkg` known to Homebrew), right-click "Free from the App Store…" replaces the App Store copy with it, after checking it is signed by the same developer. The "Other source" column and the "Can be freed" filter show which apps qualify.
 - **Several at once**: check boxes, or "Update all", one after the other with a progress bar.
 - **Explains apps it cannot track**: component of another app, self-updating, discontinued…
 - **Uninstalls like AppCleaner**: the app and its leftovers in `~/Library`, all moved to the Trash. Drop an app on the window, or right-click it.

@@ -133,7 +133,7 @@ final class Moteur: ObservableObject {
         // Ouverture à la connexion : macOS la rattache à l'emplacement de l'app. Si l'app a été déplacée
         // (dans /Applications par exemple), on la réinscrit depuis son nouvel emplacement.
         let voulu = reglages.object(forKey: "ouvrirConnexion") as? Bool ?? (SMAppService.mainApp.status == .enabled)
-        if voulu && SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
+        if voulu && !Demo.actif && SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
         lancementSession = SMAppService.mainApp.status == .enabled
         let journal = Historique.journal()
         historique = journal
@@ -148,6 +148,17 @@ final class Moteur: ObservableObject {
         majAuto = reglages.string(forKey: "majAuto").flatMap(MajAuto.init(rawValue:)) ?? (reglages.bool(forKey: "automatique") ? .fermees : .non)
         voirSortieBrew = reglages.bool(forKey: "voirSortieBrew")
         gemini = reglages.bool(forKey: "gemini")
+        if Demo.actif {
+            // Chaque démo repart d'une liste propre : rien de ce qui a été coché ou ignoré la fois d'avant.
+            ignorees = [:]; nonSuivies = []; rythmes = [:]; attenteDepuis = [:]; refusees = [:]
+            apps = Demo.apps
+            tailles = Demo.tailles
+            resumes = Demo.resumes
+            lancementSession = true
+            derniereVerif = Date()
+            verifApp = .faite
+            return
+        }
         planifier()
         surveillerApplications()
         Task { await verifier() }
@@ -262,6 +273,7 @@ final class Moteur: ObservableObject {
     // MARK: - Vérification
 
     func verifier() async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
         guard !enCours else { return }
         enCours = true
         let r = await Verification.tout()
@@ -335,6 +347,7 @@ final class Moteur: ObservableObject {
     private var messageGemini: String?
 
     func resumer() async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
         guard gemini, let k = Resumeur.cle else { return }
         if let g = messageGemini { avis.removeAll { $0.texte == g } }
         messageGemini = nil
@@ -375,15 +388,27 @@ final class Moteur: ObservableObject {
     /// Une copie perso (réglages propres, perso.json) ne se remplace pas par la version publique : elle signale seulement.
     static var copiePerso: Bool { ConfigApp.perso != nil }
 
-    private func verifierApp() async {
-        guard let p = try? await Regles.github(Self.depotApp), Versions.plusRecent(p.version, que: Self.versionApp) else {
+    static let pageApp = URL(string: "https://github.com/\(depotApp)")!
+
+    /// État de la dernière recherche d'une nouvelle version de cette app, pour la rubrique « À propos ».
+    enum VerifApp { case pasEncore, enCours, faite, echec }
+    @Published var verifApp: VerifApp = .pasEncore
+
+    func verifierApp() async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
+        verifApp = .enCours
+        do {
+            let p = try await Regles.github(Self.depotApp)
+            nouvelleVersionApp = Versions.plusRecent(p.version, que: Self.versionApp) ? p : nil
+            verifApp = .faite
+        } catch {
             nouvelleVersionApp = nil
-            return
+            verifApp = .echec
         }
-        nouvelleVersionApp = p
     }
 
     func mettreAJourApp() async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
         guard let p = nouvelleVersionApp else { return }
         guard !Self.copiePerso, let f = p.fichier else {
             if let u = p.url { NSWorkspace.shared.open(u) }
@@ -553,6 +578,7 @@ final class Moteur: ObservableObject {
     // MARK: - Mise à jour
 
     func mettreAJour(_ a: AppInstallee) async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
         await lancer(a)
         if a.action.installe { revenirAuPremierPlan() }
     }
@@ -591,6 +617,7 @@ final class Moteur: ObservableObject {
 
     /// Toutes, comme si tout était coché : Homebrew installe, les autres ouvrent leur App Store, leur page ou le Terminal.
     func toutMettreAJour() async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
         await enLot(cochables)
     }
 
@@ -609,6 +636,7 @@ final class Moteur: ObservableObject {
 
     /// Les apps cochées, dans l'ordre de la liste : Homebrew installe, les autres ouvrent leur App Store ou leur page.
     func mettreAJourSelection() async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
         await enLot(cochables.filter { selection.contains($0.id) })
     }
 
@@ -863,6 +891,7 @@ final class Moteur: ObservableObject {
     /// Remplace la version App Store par celle de l'éditeur, après confirmation. Les contrôles sont ceux d'une
     /// mise à jour : même identifiant d'app, même éditeur signataire, faite pour ce processeur. L'ancienne part à la Corbeille.
     func libererDeLAppStore(_ a: AppInstallee) async {
+        guard !Demo.actif else { return }   // démo : aucun bouton n'agit
         guard liberable(a), let k = a.cask, let u = k.url.flatMap(URL.init(string:)) else { return }
         let r = demander(L.t("Libérer \(a.nom) de l'App Store", "Free \(a.nom) from the App Store"),
                          L.t("⚠️  Vérifiez que vous ne payez pas d'abonnement pour cette application via l'App Store.\n\n⚠️  Vous allez devoir reconfigurer le logiciel comme si c'était une première installation.",
@@ -1084,6 +1113,7 @@ final class Moteur: ObservableObject {
 
     /// Renvoie un message d'erreur, ou nil si tout est parti à la Corbeille.
     func desinstaller(_ a: AppInstallee, _ chemins: [String]) async -> String? {
+        guard !Demo.actif else { return nil }   // démo : aucun bouton n'agit
         guard await fermer(a, pour: L.t("Pour la désinstaller, il faut la fermer.", "It has to quit to be uninstalled.")) != nil else {
             return message ?? L.t("\(a.nom) n'est pas fermée", "\(a.nom) is still open")
         }

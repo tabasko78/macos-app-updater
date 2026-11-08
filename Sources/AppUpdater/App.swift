@@ -51,6 +51,12 @@ final class Delegue: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
             .sink { [weak self] h in self?.ajusterHauteur(h) }
         if CommandLine.arguments.contains("--fenetre") { montrerFenetre() }
+        // --panneau : le panneau de la barre des menus s'ouvre seul, pour les captures d'écran.
+        if CommandLine.arguments.contains("--panneau") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                if let b = self?.icone.button { self?.panneau.show(relativeTo: b.bounds, of: b, preferredEdge: .minY) }
+            }
+        }
     }
 
     /// Double-clic sur l'app alors qu'elle tourne déjà : la fenêtre.

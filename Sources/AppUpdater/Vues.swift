@@ -84,16 +84,19 @@ struct LigneApp: View {
                 if !compacte, autreSource, let s = m.autreSource(app) {
                     let oui = m.liberable(app)
                     Text(s).font(T.police(11)).foregroundStyle(oui ? T.versionNouvelle : T.tresDoux).lineLimit(1)
-                        .frame(width: 170, alignment: .leading)
+                        .frame(width: 200, alignment: .leading)
                         .help(oui ? L.t("L'éditeur publie sa propre version : clic droit > Libérer de l'App Store…", "The developer publishes its own version: right-click > Free from the App Store…")
                                   : L.t("Aucune version de l'éditeur connue : cette app ne se met à jour que par l'App Store", "No developer version known: this app only updates through the App Store"))
                 }
                 if !compacte {
                     Text(usage).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
                         .frame(width: 150, alignment: .leading)
-                    Text(majTexte).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
-                        .frame(width: 168, alignment: .leading)
-                        .help(L.t("Dernière mise à jour ou installation de cette app, faite ici ou ailleurs", "Last update or installation of this app, made here or elsewhere"))
+                    // Vue App Store : la colonne « Autre source » prend sa place, sinon le nom des apps n'a plus la largeur de s'afficher.
+                    if !autreSource {
+                        Text(majTexte).font(T.police(11)).foregroundStyle(T.tresDoux).lineLimit(1)
+                            .frame(width: 168, alignment: .leading)
+                            .help(L.t("Dernière mise à jour ou installation de cette app, faite ici ou ailleurs", "Last update or installation of this app, made here or elsewhere"))
+                    }
                 }
                 versions
                 if !compacte { pastille }
@@ -283,12 +286,12 @@ enum Tri: CaseIterable, Identifiable {
 
 final class EtatFenetre: ObservableObject {
     @Published var onglet: Onglet = CommandLine.arguments.contains("--reglages") ? .reglages : .applications   // --reglages : pour vérifier la page
-    @Published var filtre: Filtre = CommandLine.arguments.contains("--toutes") ? .toutes : .aMettreAJour   // --toutes : pour vérifier la page
+    @Published var filtre: Filtre = CommandLine.arguments.contains("--toutes") || CommandLine.arguments.contains("--appstore") ? .toutes : .aMettreAJour   // --toutes : pour vérifier la page
     @Published var recherche = ""
     @Published var sortieOuverte = false
     @Published var survolDepot = false
     @Published var tri: Tri = .nom
-    @Published var source: Source? = nil   // nil : toutes les sources
+    @Published var source: Source? = CommandLine.arguments.contains("--appstore") ? .appStore : nil   // nil : toutes les sources ; --appstore : pour les captures
     @Published var liberables = false      // seulement les apps App Store qui ont une version de l'éditeur
 }
 
@@ -634,7 +637,7 @@ struct JournalVue: View {
 // MARK: - Réglages
 
 final class EtatReglages: ObservableObject {
-    @Published var cleGemini = Resumeur.cle ?? ""
+    @Published var cleGemini = Demo.actif ? String(repeating: "•", count: 39) : Resumeur.cle ?? ""
     @Published var verification: String?     // nil : rien à dire ; "" : clé valide ; sinon l'erreur
     @Published var enTest = false
     @Published var modele = Resumeur.modele
@@ -677,6 +680,15 @@ struct ReglagesVue: View {
                     ligne(L.t("Ouvrir à la connexion", "Open at login"), L.t("L'app se lance seule à l'ouverture de ta session.", "The app starts by itself when you log in.")) {
                         Toggle("", isOn: Binding(get: { m.lancementSession }, set: { m.basculerLancementSession($0) }))
                             .toggleStyle(Interrupteur()).labelsHidden()
+                    }
+                }
+                // En bas de la colonne de gauche, la plus courte : la page ne grandit presque pas.
+                rubrique(L.t("À propos", "About")) {
+                    ligne(L.t("Version", "Version"), L.t("L'app cherche aussi seule une nouvelle version à chaque lancement, et l'annonce alors par un bandeau en haut de la fenêtre.", "The app also looks for a new version by itself at every launch, and then announces it with a banner at the top of the window.")) {
+                        versionApp
+                    }
+                    ligne(L.t("Page GitHub", "GitHub page"), L.t("Le code source, les nouveautés de chaque version, et l'endroit où signaler un problème.", "The source code, what's new in each version, and where to report a problem.")) {
+                        Button(L.t("Ouvrir la page", "Open page")) { NSWorkspace.shared.open(Moteur.pageApp) }.buttonStyle(BoutonDiscret())
                     }
                 }
             }
@@ -759,8 +771,33 @@ struct ReglagesVue: View {
         }
     }
 
+    /// « 1.2.2  ✓ À jour  [Vérifier] », ou le bouton qui installe la nouvelle version.
+    private var versionApp: some View {
+        HStack(spacing: 8) {
+            Text(Moteur.versionApp).font(T.police(12, .semibold)).foregroundStyle(T.doux).monospacedDigit()
+            if m.majApp || m.verifApp == .enCours {
+                ProgressView().controlSize(.small)
+            } else if let p = m.nouvelleVersionApp {
+                if Moteur.copiePerso || p.fichier == nil {
+                    Button(L.t("Voir la \(p.version)", "View \(p.version)")) { Task { await m.mettreAJourApp() } }.buttonStyle(BoutonDiscret())
+                } else {
+                    Button(L.t("Installer la \(p.version)", "Install \(p.version)")) { Task { await m.mettreAJourApp() } }
+                        .buttonStyle(BoutonPlein(teinte: Boutons.mettreAJour))
+                }
+            } else {
+                if m.verifApp == .faite {
+                    Label(L.t("À jour", "Up to date"), systemImage: "checkmark").font(T.police(12)).foregroundStyle(T.statut)
+                } else if m.verifApp == .echec {
+                    Label(L.t("GitHub injoignable", "GitHub unreachable"), systemImage: "xmark").font(T.police(12)).foregroundStyle(T.framboise)
+                }
+                Button(L.t("Vérifier", "Check")) { Task { await m.verifierApp() } }.buttonStyle(BoutonDiscret())
+            }
+        }
+    }
+
     /// « 12 appels · 34 500 jetons · 3 recherches · ≈ 0,04 $ »
     private var consommation: String {
+        if Demo.actif { return L.t("58 appels · 81 420 jetons · 11 recherches · ≈ 0,190 $", "58 calls · 81,420 tokens · 11 searches · ≈ $0.190") }
         let c = Consommation.lire().values
         let appels = c.reduce(0) { $0 + $1.appels }
         let jetons = c.reduce(0) { $0 + $1.entree + $1.sortie }
