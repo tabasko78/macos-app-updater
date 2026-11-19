@@ -259,22 +259,30 @@ enum AppStore {
         var appIPhone = false     // app iPhone ou iPad : ne tourne que sur puce Apple
     }
 
+    /// Une app vendue d'un seul achat pour iPhone et Mac (Authenticator, TestFlight, ColorSlurp) n'a qu'une fiche :
+    /// sans `entity`, Apple y renvoie la version iPhone (Authenticator 10.3.5 contre 10.3.8 sur Mac le 19/11/2026).
+    /// D'où une première passe en `desktopSoftware`, la version Mac ; la seconde, sans `entity`, rattrape les apps
+    /// iPhone ou iPad installées sur un Mac à puce Apple.
     static func verifier(_ ids: [String]) async throws -> [String: Fiche] {
         var res: [String: Fiche] = [:]
         for pays in ["fr", "us"] {
-            let manquants = ids.filter { res[$0.lowercased()] == nil }
-            for lot in manquants.paquets(40) {
-                var c = URLComponents(string: "https://itunes.apple.com/lookup")!
-                c.queryItems = [.init(name: "bundleId", value: lot.joined(separator: ",")), .init(name: "country", value: pays)]
-                let (data, _) = try await URLSession.shared.data(from: c.url!)
-                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                for r in json?["results"] as? [[String: Any]] ?? [] {
-                    guard let b = r["bundleId"] as? String, let v = r["version"] as? String else { continue }
-                    res[b.lowercased()] = Fiche(version: v, url: (r["trackViewUrl"] as? String).flatMap(URL.init(string:)),
-                                                date: (r["currentVersionReleaseDate"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) },
-                                                notes: r["releaseNotes"] as? String,
-                                                minOS: r["minimumOsVersion"] as? String,
-                                                appIPhone: (r["kind"] as? String) == "software")
+            for entite in ["desktopSoftware", nil] as [String?] {
+                let manquants = ids.filter { res[$0.lowercased()] == nil }
+                for lot in manquants.paquets(40) {
+                    var c = URLComponents(string: "https://itunes.apple.com/lookup")!
+                    c.queryItems = [.init(name: "bundleId", value: lot.joined(separator: ",")), .init(name: "country", value: pays)]
+                    if let entite { c.queryItems?.append(.init(name: "entity", value: entite)) }
+                    let (data, _) = try await URLSession.shared.data(from: c.url!)
+                    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    for r in json?["results"] as? [[String: Any]] ?? [] {
+                        guard let b = r["bundleId"] as? String, let v = r["version"] as? String else { continue }
+                        res[b.lowercased()] = Fiche(version: v, url: (r["trackViewUrl"] as? String).flatMap(URL.init(string:)),
+                                                    date: (r["currentVersionReleaseDate"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) },
+                                                    notes: r["releaseNotes"] as? String,
+                                                    minOS: r["minimumOsVersion"] as? String,
+                                                    // trouvée en version Mac : pas une app iPhone, même si sa fiche dit « software »
+                                                    appIPhone: entite == nil && (r["kind"] as? String) == "software")
+                    }
                 }
             }
         }
